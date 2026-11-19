@@ -1,0 +1,18 @@
+#+title: Documentação do pipeline OGBN-Arxiv
+#+author: Nícolas Rosenthal Dal Corso
+#+startup: overview
+#+options: toc:2
+
+* Objetivo
+Documentação progressiva da implementação em =src/Ogbn/=. O conteúdo é baseado nos módulos examinados; pontos ainda não verificados são indicados como pendências.
+
+* Documentos
+- [[file:00-architecture.org][Arquitetura]]
+- [[file:01-execution-flow.org][Fluxo de execução]]
+- [[file:02-data-acquisition.org][Aquisição dos dados]]
+- [[file:03-corpus-construction.org][Construção do corpus]]
+- [[file:04-data-representation.org][Representação dos dados]]
+- [[file:11-reproducibility.org][Ambiente e reprodutibilidade]]
+
+* Próximas etapas
+Representações textuais, grafos, modelos, avaliação, agregação e análise dos resultados.

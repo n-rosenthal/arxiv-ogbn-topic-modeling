@@ -1,0 +1,71 @@
+#+title: Fluxo de execução
+#+startup: overview
+#+options: toc:2
+
+* Orquestrador: =run_all.sh=
+Executar a partir da raiz do repositório (diretório que contém =src/=):
+#+begin_src sh
+bash src/Ogbn/run_all.sh
+#+end_src
+
+O script usa =set -euo pipefail=, cria =logs/= e registra a saída em =logs/run_all_<data-hora>.log=.
+
+* Parâmetros
+| Variável | Padrão | Significado |
+|-----------+-------------------------------+-------------------------------|
+| =ROOT= | =data/ogbn= | Raiz dos dados e resultados. |
+| =EMB= | =minilm= | Identificador dos embeddings. |
+| =K= | =50= | Número de tópicos. |
+| =SEEDS= | =0 1 2 3 4= | Seeds. |
+| =MAXN= | vazio | Limite opcional de documentos. |
+| =TEXT_MODE= | =full= | =full= ou =title=. |
+| =RAW_DIR= | vazio | Diretório alternativo de dados brutos. |
+| =MODELS= | =lda nmf prodlda ctm ctm_knn ctm_cite ctm_both= | Modelos do pipeline padrão. |
+| =NBR_K= | =10= | Número de vizinhos kNN. |
+| =TAG= | vazio | Sufixo para separar execuções. |
+
+As variáveis podem ser sobrescritas no ambiente.
+
+* Ordem
+1. Se =RAW_DIR= estiver vazio, executa =download=.
+2. Executa =corpus= com =TEXT_MODE= e =MAXN=.
+3. Executa =text_features= com =min-df=20=, =max-df=0.3= e =max-features=5000=.
+4. Executa =embeddings= com o identificador =EMB=.
+5. Para cada seed, executa todos os modelos.
+6. Tenta agregar os resultados depois de cada seed.
+
+O loop é seed-major: completa os modelos de uma seed antes de avançar. A agregação usa =|| true=; falhas nessa etapa não encerram o script.
+
+* Runner: =run_experiment.py=
+A função =run(...)= carrega o corpus, exige BoW, carrega embeddings quando necessários, constrói entradas de grafo para modelos pertinentes, treina, avalia e grava um JSON por execução.
+
+* Modelos reconhecidos
+=ALL= contém =lda=, =nmf=, =bertopic= e:
+| Modelo | Grafo | Embeddings | BoW no encoder |
+|-----------+---------+------------+----------------|
+| =prodlda= | nenhum | não | sim |
+| =ctm= | nenhum | sim | sim |
+| =ctm_knn= | kNN | sim | sim |
+| =ctm_cite= | citações | sim | sim |
+| =ctm_both= | combinado | sim | sim |
+| =ctm_rand= | aleatório | sim | sim |
+| =zeroshot= | nenhum | sim | não |
+| =zeroshot_both= | combinado | sim | não |
+
+A lista padrão de =MODELS= não inclui todos os modelos aceitos pelo runner.
+
+* Saídas e retomada
+Caminho dos resultados:
+#+begin_src text
+<root>/results/<emb>/<corpus-fingerprint>/
+    <model>_K<K>[_tag]_s<seed>.json
+#+end_src
+
+Se o JSON já existe, o runner pula a execução, salvo com =--force=. O argumento =--save-theta= salva adicionalmente as distribuições theta do conjunto de teste.
+
+* Hiperparâmetros
+O runner aceita =--hidden=, =--dropout=, =--theta-dropout=, =--lr=, =--batch=, =--epochs=, =--kl-weight=, =--kl-anneal= e =--no-decoder-bn=. Os defaults efetivos precisam ser conferidos em =ctm.py=.
+
+* Observações
+- O script sempre invoca corpus, features e embeddings; o cache dessas etapas depende de cada módulo.
+- Sucesso do script não garante agregação bem-sucedida.
