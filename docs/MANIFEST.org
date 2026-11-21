@@ -1,0 +1,50 @@
+#+title: Manifesto da documentação de src/Ogbn
+#+options: toc:2 num:nil
+
+* Documentos
+
+| Arquivo                    | Assunto                                                 | Estado      |   |   |
+|----------------------------+---------------------------------------------------------+-------------+---+---|
+| [[file:README.org][README.org]]                 | Índice e orientação de leitura                          | Atualizado  |   |   |
+| [[file:00-architecture.org][00-architecture.org]]        | Arquitetura geral do pacote                             | Documentado |   |   |
+| [[file:01-execution-flow.org][01-execution-flow.org]]      | =run_all.sh= e =run_experiment.py=                          | Documentado |   |   |
+| [[file:02-data-acquisition.org][02-data-acquisition.org]]    | Aquisição dos dados                                     | Documentado |   |   |
+| [[file:03-corpus-construction.org][03-corpus-construction.org]] | Construção do corpus                                    | Documentado |   |   |
+| [[file:04-data-representation.org][04-data-representation.org]] | Estruturas e carregamento dos dados                     | Documentado |   |   |
+| [[file:05-text-features.org][05-text-features.org]]       | Representação BoW e vocabulário                         | Documentado |   |   |
+| [[file:06-document-embeddings.org][06-document-embeddings.org]] | Embeddings e cache                                      | Documentado |   |   |
+| [[file:07-graphs.org][07-graphs.org]]              | Grafos e propagação de atributos                        | Documentado |   |   |
+| [[file:08-evaluation.org][08-evaluation.org]]          | Métricas e avaliação                                    | Documentado |   |   |
+| [[file:09-baselines.org][09-baselines.org]]           | Modelos de referência                                   | Documentado |   |   |
+| [[file:10-neural-topic-model.org][10-neural-topic-model.org]]  | VAE e variantes neurais                                 | Documentado |   |   |
+| [[file:11-reproducibility.org][11-reproducibility.org]]     | Ambiente e reprodutibilidade                            | Documentado |   |   |
+| [[file:12-ablation.org][12-ablation.org]]            | Análise de ablação                                      | Documentado |   |   |
+| [[file:13-stability.org][13-stability.org]]           | Estabilidade entre execuções e modelos                  | Documentado |   |   |
+| [[file:14-intrusion.org][14-intrusion.org]]           | Avaliação por intrusão de palavras                      | Documentado |   |   |
+| [[file:15-aggregation.org][15-aggregation.org]]         | Agregação de resultados, tabelas e testes estatísticos. |             |   |   |
+| [[file:16-topic-comparison.org][16-topic-comparison.org]]    | Comparação qualitativa e alinhamento de tópicos.        |             |   |   |
+| [[file:17-environment-info.org][17-environment-info.org]]    | Coleta de informações de software e hardware.           |             |   |   |
+* Inventário de implementação
+
+O inventário abaixo relaciona os módulos e scripts do pacote aos documentos
+que descrevem seu funcionamento.
+
+| Componente        | Documento / Estado              |                                                |
+|-------------------+---------------------------------+------------------------------------------------|
+| =download.py=       | [[file:02-data-acquisition.org][02-data-acquisition.org]]         |                                                |
+| =corpus.py=         | [[file:03-corpus-construction.org][03-corpus-construction.org]]      |                                                |
+| =data.py=           | [[file:04-data-representation.org][04-data-representation.org]]      |                                                |
+| =text_features.py=  | [[file:05-text-features.org][05-text-features.org]]            |                                                |
+| =embeddings.py=     | [[file:06-document-embeddings.org][06-document-embeddings.org]]      |                                                |
+| =graphs.py=         | [[file:07-graphs.org][07-graphs.org]]                   |                                                |
+| =evaluate.py=       | [[file:08-evaluation.org][08-evaluation.org]]               |                                                |
+| =baselines.py=      | [[file:09-baselines.org][09-baselines.org]]                |                                                |
+| =ctm.py=            | [[file:10-neural-topic-model.org][10-neural-topic-model.org]]       |                                                |
+| =run_all.sh=        | [[file:01-execution-flow.org][01-execution-flow.org]]           |                                                |
+| =run_experiment.py= | [[file:01-execution-flow.org][01-execution-flow.org]]           |                                                |
+| =ablation.py=       | [[file:12-ablation.org][12-ablation.org]]                 |                                                |
+| =stability.py=      | [[file:13-stability.org][13-stability.org]]                |                                                |
+| =aggregate.py=      | 15-aggregation.org              | Agregação, comparações pareadas e hipóteses.   |
+| =compare_topics.py= | 16-topic-comparison.org         | Similaridade, alinhamento e perfis de tópicos. |
+| =env_info.py=       | 17-environment-info.org         | Informações do ambiente experimental.          |
+| =__init__.py=       | Vazio; sem documentação própria |                                                |

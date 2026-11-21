@@ -1,18 +1,56 @@
-#+title: Documentação do pipeline OGBN-Arxiv
-#+author: Nícolas Rosenthal Dal Corso
-#+startup: overview
-#+options: toc:2
+#+title: Documentação de src/Ogbn
+#+subtitle: Pipeline experimental para modelagem de tópicos em artigos científicos
+#+options: toc:2 num:nil
 
-* Objetivo
-Documentação progressiva da implementação em =src/Ogbn/=. O conteúdo é baseado nos módulos examinados; pontos ainda não verificados são indicados como pendências.
+* Visão geral
 
-* Documentos
-- [[file:00-architecture.org][Arquitetura]]
-- [[file:01-execution-flow.org][Fluxo de execução]]
-- [[file:02-data-acquisition.org][Aquisição dos dados]]
-- [[file:03-corpus-construction.org][Construção do corpus]]
-- [[file:04-data-representation.org][Representação dos dados]]
-- [[file:11-reproducibility.org][Ambiente e reprodutibilidade]]
+Esta documentação descreve a arquitetura, os dados, o processamento textual, as representações vetoriais, os grafos, os modelos de tópicos, a avaliação e as análises complementares do pacote =src/Ogbn=.
 
-* Próximas etapas
-Representações textuais, grafos, modelos, avaliação, agregação e análise dos resultados.
+O objetivo do pacote é executar e comparar modelos de tópicos sobre um /corpus/ de artigos científicos, incluindo modelos tradicionais, modelos neurais inspirados em ~ProdLDA/CTM~ e variantes que incorporam informação de grafos.
+
+* Como navegar
+
+** Arquitetura e execução
+
+- [[file:00-architecture.org][00 — Arquitetura]]: componentes e organização geral do pipeline.
+- [[file:01-execution-flow.org][01 — Fluxo de execução]]: orquestração por =run_all.sh= e =run_experiment.py=.
+
+** Dados e representações
+
+- [[file:02-data-acquisition.org][02 — Aquisição de dados]]: obtenção dos dados de origem.
+- [[file:03-corpus-construction.org][03 — Construção do corpus]]: filtragem, junções, ordenação e arquivos produzidos.
+- [[file:04-data-representation.org][04 — Representação dos dados]]: estrutura =Bundle=, carregamento e /fingerprint/.
+- [[file:05-text-features.org][05 — Atributos textuais]]: vocabulário e matriz =Bag-of-Words=.
+- [[file:06-document-embeddings.org][06 — Embeddings de documentos]]: codificadores, /cache/ e SVD.
+- [[file:07-graphs.org][07 — Grafos]]: citações, =kNN=, restrições temporais e propagação.
+
+** Modelos e avaliação
+
+- [[file:08-evaluation.org][08 — Avaliação]]: métricas e representação dos tópicos.
+- [[file:09-baselines.org][09 — Baselines]]: ~LDA~, ~NMF~ e ~BERTopic~.
+- [[file:10-neural-topic-model.org][10 — Modelo neural de tópicos]]: ~VAE~, variantes ~CTM~ e treinamento.
+
+** Reprodutibilidade e análises complementares
+
+- [[file:11-reproducibility.org][11 — Reprodutibilidade]]: ambiente, sementes e política de cache.
+- [[file:12-ablation.org][12 — Ablação]]: sensibilidade ao número de tópicos e de vizinhos.
+- [[file:13-stability.org][13 — Estabilidade]]: consistência dos tópicos entre sementes e modelos.
+- [[file:14-intrusion.org][14 — Intrusão de palavras]]: construção e avaliação da tarefa de intrusão.
+
+* Ordem de leitura sugerida
+Para compreender o funcionamento ponta a ponta:
+
+1. Leia a arquitetura e o fluxo de execução.
+2. Acompanhe a construção e a representação do corpus.
+3. Examine os atributos textuais, embeddings e grafos.
+4. Estude os modelos de tópicos e as métricas de avaliação.
+5. Consulte a documentação de reprodutibilidade e das análises complementares.
+
+* Escopo e convenções
+Os documentos descrevem o comportamento observado na implementação.
+Limitações e riscos metodológicos são indicados separadamente das descrições de funcionamento.
+
+Parâmetros, caminhos e resultados podem variar conforme a configuração experimental e os artefatos presentes no diretório de dados.
+
+* Estado da documentação
+Consulte [[file:MANIFEST.org][MANIFEST.org]] para o inventário completo e o estado de documentação de cada componente.

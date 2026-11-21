@@ -1,0 +1,60 @@
+#+title: Modelo neural de tópicos — ProdLDA / CTM
+#+options: toc:2 num:nil
+
+* Objetivo e variantes
+=ctm.py= implementa um VAE para modelagem de tópicos. A entrada do encoder varia:
+
+| Variante | Entrada |
+|---+---|
+| =prodlda= | BoW normalizado |
+| =ctm= | BoW normalizado concatenado ao embedding =x= |
+| =ctm_knn= e variantes de grafo | BoW normalizado concatenado a =[x, Ax, A²x]= |
+
+A adjacência =A= é construída fora deste módulo, em =graphs.py=. O módulo recebe as características já preparadas.
+
+* Configuração
+A dataclass =Config= define K (=topics=), dimensão oculta, dropout do encoder e de θ, taxa de aprendizado, =beta1=, tamanho de lote, épocas, paciência, peso e aquecimento KL, BatchNorm do decoder e =prior_alpha=.
+
+Padrões: K=50, hidden=256, dropout=0.2, theta_dropout=0.2, lr=0.002, beta1=0.99, batch=512, epochs=100, patience=8, kl_weight=1, kl_anneal=10, decoder_bn=True e prior_alpha=1.
+
+* Arquitetura =TopicVAE=
+O encoder aplica BatchNorm à entrada e duas camadas lineares com ReLU e dropout. Projeções distintas produzem =mu= e =logvar=, normalizadas por BatchNorm sem parâmetros afins.
+
+Durante o treino, amostra-se =z = mu + ε exp(0.5 logvar)=; depois =theta = softmax(z)=. Na inferência, usa-se =mu= sem amostragem. Dropout adicional em θ só é aplicado no caminho de treino.
+
+O decoder projeta θ para o vocabulário, aplica BatchNorm opcional sem parâmetros afins, soma um viés treinável inicializado pelo log da frequência unigramática do treino e aplica =log_softmax=.
+
+=topic_word= decodifica vetores one-hot de dimensão K em modo de avaliação e retorna a distribuição efetiva palavra-tópico. =evaluate.top_words= extrai as palavras de maior peso.
+
+A variância do prior é uma aproximação calculada de =prior_alpha= e K. O termo KL é calculado por documento e somado nas dimensões latentes.
+
+* Treinamento: =fit_predict=
+1. Define sementes NumPy/PyTorch e escolhe CUDA, MPS ou CPU.
+2. Converte BoW para CSR float32.
+3. Para a entrada do encoder, aplica =log1p= e normalização L2 por documento.
+4. Concatena BoW de entrada e características densas conforme =use_bow= e =feats=.
+5. Calcula frequência unigramática exclusivamente no split de treino, com suavização +1.
+6. Usa contagens BoW originais como alvo de reconstrução.
+7. Otimiza perda de reconstrução multinomial mais KL ponderada; recorta gradientes com norma máxima 5.
+
+O peso KL cresce linearmente por =kl_anneal= épocas. A validação usa sempre o peso completo. Checkpoints só são considerados depois do aquecimento; uma melhoria precisa superar 1e-3. O treinamento termina por limite de épocas ou paciência.
+
+Após restaurar o melhor estado de validação, calcula θ determinístico =softmax(mu)= para train, val e test. Retorna palavras de topo, θ por split e metadados de execução.
+
+* Separação e limitações
+Os parâmetros são ajustados com treino; validação orienta early stopping. O teste só é usado para produzir θ após o ajuste.
+
+- O código pressupõe códigos de split 0, 1 e 2.
+- Um split de validação vazio pode causar divisão por zero em =run_epoch=.
+- =toarray()= converte cada lote para matriz densa; isso pode consumir memória.
+- O alvo de reconstrução são contagens brutas, não BoW normalizado.
+- Se nenhum checkpoint for selecionado, o estado final é mantido e a melhor perda permanece infinita.
+- O módulo não salva pesos do modelo.
+- A seleção de grafo e a montagem de =feats= pertencem ao chamador, não a =fit_predict=.
+
+* Interface
+#+begin_src python
+fit_predict(bow, split, feats, use_bow, cfg, seed, top_n=10, log=print)
+#+end_src
+
+Retorno: =(top_idx, theta, info)=; =theta= contém matrizes para train, val e test; =info= contém épocas, melhor perda de validação, duração e dispositivo.

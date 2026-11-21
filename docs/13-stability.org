@@ -1,0 +1,37 @@
+#+title: Estabilidade de tópicos entre sementes e modelos
+#+options: toc:2 num:nil
+
+* Objetivo
+=stability.py= quantifica a estabilidade dos tópicos entre execuções e a diferença em relação a um modelo de referência. Usa Jaccard sobre palavras de topo e alinhamento um-para-um por =compare_topics.match_topics= (algoritmo Húngaro).
+
+* Procedimento
+=_words= lê =top_words= do JSON correspondente a modelo, K e semente; arquivo ausente retorna =None=.
+
+Para cada modelo, =stability=:
+1. seleciona sementes com resultados disponíveis;
+2. forma todos os pares não ordenados de sementes;
+3. alinha tópicos com =match_topics=;
+4. resume os Jaccards dos pares alinhados.
+
+Para modelos diferentes da referência, compara também modelo e referência na mesma semente, quando ambos os arquivos existem.
+
+* Estatísticas
+O limiar é =THRESH=0.3=. Para cada comparação, calcula-se a média dos Jaccards dos tópicos alinhados. Depois, reporta-se a média dessas médias e o desvio padrão amostral entre pares (ddof=1). Também reporta a proporção média de tópicos alinhados com Jaccard ≥ 0.3. Com uma comparação, o desvio é zero.
+
+* CLI e saída
+#+begin_src sh
+python -m src.Ogbn.stability --root data/ogbn --emb minilm --topics 50 --models prodlda ctm ctm_knn ctm_both
+#+end_src
+
+Argumentos: =--root=, =--emb=, =--topics=, =--models=, =--ref= (padrão ctm) e =--seeds= (padrão 0–4). Escreve =<results>/stability_K<K>.org= e imprime a tabela.
+
+* Interpretação
+A comparação cruzada é descritiva: se a similaridade modelo–referência na mesma semente for tão baixa quanto a estabilidade da referência entre sementes, a mudança pode não exceder a variação de uma nova execução. O código não realiza teste inferencial para essa conclusão.
+
+* Limitações
+- Modelos podem ter números diferentes de sementes disponíveis.
+- Menos de duas sementes não produz estatística intra-modelo.
+- Comparação cruzada usa apenas sementes comuns.
+- O desvio é entre pares de sementes, não entre documentos.
+- A rotina não lê tags de resultados.
+- Pressupõe que =match_topics= devolva triplas cujo terceiro elemento é Jaccard.

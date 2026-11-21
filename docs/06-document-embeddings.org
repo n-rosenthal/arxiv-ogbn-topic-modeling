@@ -1,0 +1,73 @@
+#+title: Embeddings de documentos
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Módulo
+
+=embeddings.py=
+
+* Objetivo
+
+Gerar uma representação vetorial densa para cada documento, a partir de título
+e abstract. A saída final é =features/emb_<model>.npy=, matriz de forma =(N, d)=
+em =float32= e normalizada em norma L2.
+
+* Modelos Transformer
+
+| Chave | Modelo |
+|-------+--------|
+| =minilm= | =sentence-transformers/all-MiniLM-L6-v2= |
+| =mpnet= | =sentence-transformers/all-mpnet-base-v2= |
+| =specter= | =allenai-specter= |
+
+A seleção de dispositivo tenta CUDA, depois MPS e, por fim, CPU. O ambiente
+registrado anteriormente não tinha CUDA disponível; isso, isoladamente, não
+determina a disponibilidade de MPS.
+
+O comprimento máximo de sequência padrão é 256 tokens. Textos maiores podem
+ser truncados pelo modelo. Para SPECTER, título e abstract são separados por
+=" [SEP] "=; para os demais modelos, por =". "=.
+
+* Processamento em blocos e retomada
+
+A codificação é feita em chunks (padrão 20.000 documentos) e batches (padrão
+64). Os pedaços são guardados em diretório semelhante a:
+
+#+begin_example
+features/emb_<key>.<fingerprint>.parts/
+#+end_example
+
+Pedaços existentes são reutilizados; os ausentes são codificados e salvos como
+=float32=. Ao final, os pedaços são concatenados.
+
+* Alternativa SVD
+
+A opção =svd= é uma baseline offline, não um Transformer:
+1. ajusta =TfidfVectorizer= (com =sublinear_tf=True=, =min_df=2=,
+   =max_df=0.5= e stopwords inglesas) no treino;
+2. transforma todos os documentos;
+3. ajusta =TruncatedSVD= apenas na matriz de treino;
+4. transforma os demais documentos;
+5. normaliza os vetores em L2.
+
+A dimensão solicitada padrão é 128, limitada a =min(dim, n_features - 1)=.
+A seed padrão do SVD é 0.
+
+* Cautela metodológica: SPECTER
+
+SPECTER foi treinado com sinal de citações. Seus embeddings podem, portanto,
+codificar informação relacionada ao grafo antes de qualquer propagação
+explícita. Para sustentar que a estrutura do grafo acrescenta informação
+independente, é mais prudente usar MiniLM como encoder textual principal e
+SPECTER como ablação/comparação.
+
+* Limitações do cache
+
+O fingerprint usado no diretório de pedaços representa IDs e ordem, não o texto
+nem os parâmetros de codificação. A reutilização verifica a existência do
+arquivo, sem validar checksum, forma, =max_len=, revisão do modelo ou outros
+parâmetros. Alterar esses elementos pode reutilizar chunks obsoletos.
+
+O arquivo final =emb_<model>.npy= também não incorpora fingerprint ou manifesto
+de configuração. Recomenda-se registrar parâmetros e invalidar explicitamente
+os caches quando a configuração mudar.

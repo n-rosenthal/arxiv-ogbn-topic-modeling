@@ -1,0 +1,37 @@
+#+title: Análise de ablação e sensibilidade
+#+options: toc:2 num:nil
+
+* Objetivo
+=ablation.py= avalia a sensibilidade da comparação CTM versus CTM+kNN a K (número de tópicos) e k (número de vizinhos). Não treina modelos: consome resultados de =aggregate.load=.
+
+* Métricas
+| Campo | Rótulo |
+|---+---|
+| =nmi_test= | NMI |
+| =acc_test= | Acc. |
+| =npmi= | NPMI |
+
+* Estatísticas
+=_ms= apresenta média e desvio padrão amostral (ddof=1); com uma observação, exibe desvio zero.
+
+=_diff(a,b)= alinha séries pelo índice, calcula =a-b= e remove diferenças ausentes. Com menos de duas observações, retorna travessão. Caso contrário, usa intervalo t bilateral de 95%: média ± t(0.975,n−1) × s/√n. Sinal positivo favorece a primeira série.
+
+* Varredura de K: =table_K=
+Para cada K, carrega resultados sem tag, verifica a presença de CTM e CTM+kNN, indexa por semente e reporta média/desvio de cada métrica e diferença pareada kNN − CTM com IC95%. O resultado vai para =ablation_K.org=.
+
+* Varredura de k: =table_k=
+Mantém K fixo (padrão 50). Para cada k, compara CTM+kNN com CTM sem grafo. O k principal (padrão 10) usa resultados sem tag; outros k usam tag =k<k>=, conforme convenção =run_experiment --k <k> --tag k<k>=. O resultado vai para =ablation_k.org=.
+
+* CLI
+#+begin_src sh
+python -m src.Ogbn.ablation --root data/ogbn --emb minilm --Ks 20 50 100 --ks 5 10 20
+#+end_src
+
+Argumentos adicionais: =--K= define o K fixo da varredura de k.
+
+* Limitações
+- O número de sementes é a interseção, mas as médias marginais são calculadas sobre cada série completa; se faltarem sementes, médias e diferença podem usar conjuntos diferentes.
+- O IC t pressupõe diferenças independentes entre sementes; com poucas sementes a incerteza é grande.
+- A rotina omite K sem ambos os modelos.
+- A varredura de k verifica séries vazias, mas não valida explicitamente uma interseção suficiente.
+- A correção dos resultados depende das convenções de nomes/tag e dos metadados gravados pelo pipeline.

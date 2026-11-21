@@ -1,0 +1,96 @@
+#+title: Métricas e avaliação
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Módulo
+
+=evaluate.py=
+
+* Contrato de entrada
+
+A função =evaluate= recebe:
+- =top_idx=: índices das =n= palavras mais representativas de cada tópico,
+  com forma =(K, n)=;
+- =theta=: proporções documento-tópico por split;
+- =labels=: rótulos de categoria por split;
+- =Xbin=: BoW binária em formato CSC.
+
+A função =top_words(beta, n)= seleciona os índices das maiores entradas por
+linha de =beta=. =binary_csc(X)= converte valores positivos em 1 e produz uma
+matriz CSC.
+
+* Coerência NPMI
+
+Para cada tópico, a função calcula a coocorrência de pares de palavras de topo
+na BoW binária. As probabilidades marginais e conjuntas são estimadas sobre
+todas as linhas de =Xbin=.
+
+#+begin_example
+PMI(w_i,w_j) = log(P(w_i,w_j) / (P(w_i) P(w_j)))
+NPMI(w_i,w_j) = PMI(w_i,w_j) / -log(P(w_i,w_j))
+#+end_example
+
+O epsilon evita logaritmos e divisões por zero. Pares que nunca coocorrem
+recebem valor próximo de -1. A função retorna a média dos pares distintos de
+cada tópico; a avaliação reporta média e mediana entre tópicos.
+
+** Observação metodológica
+
+A coocorrência é calculada sobre o corpus completo, incluindo treino,
+validação e teste. Isso não altera o ajuste dos modelos, mas faz a métrica de
+coerência usar estatísticas textuais de todos os splits. Para uma avaliação
+estritamente sem acesso ao teste, seria necessário calcular a coerência em um
+conjunto de referência definido previamente, por exemplo apenas treino.
+
+* Diversidade
+
+=topic_diversity= calcula:
+
+#+begin_example
+| palavras únicas entre os tópicos | / (K * n)
+#+end_example
+
+O valor mede a proporção de palavras distintas nas listas de topo. Diversidade
+maior indica menor repetição entre tópicos, mas não garante interpretabilidade.
+
+* Associação com categorias
+
+Para validação e teste:
+- =nmi_<split>=: informação mútua normalizada entre o tópico dominante
+  (=argmax(theta)=) e a categoria arXiv;
+- =purity_<split>=: para cada cluster/tópico predito, conta a classe verdadeira
+  mais frequente e soma essas contagens, dividindo pelo total.
+
+Essas métricas comparam clusters não supervisionados com rótulos externos; não
+significam que os tópicos tenham sido treinados como classificadores.
+
+* Tópicos ativos
+
+Um tópico é considerado ativo quando é o tópico dominante de pelo menos 0,5%
+dos documentos de teste. =n_active= conta quantos satisfazem esse limiar.
+=n_topics= registra o número de colunas de =theta["test"]=.
+
+* Avaliação preditiva por regressão logística
+
+O módulo treina um classificador logístico usando =log(theta + 1e-6)= como
+atributos:
+- treino: =theta["train"]= e =labels["train"]=;
+- avaliação: validação e teste;
+- pipeline: =StandardScaler= seguido de =LogisticRegression(max_iter=2000,
+  C=1.0)=;
+- se o treino exceder 60.000 documentos, uma amostra sem reposição é escolhida
+  com a seed fornecida.
+
+São reportados =acc_<split>= e =f1_<split>=, sendo F1 macro.
+
+Essa etapa mede quanto a representação tópico-documento permite recuperar as
+categorias por um classificador supervisionado. Não é uma métrica intrínseca de
+qualidade semântica dos tópicos.
+
+* Interpretação
+
+NPMI e diversidade avaliam propriedades das listas de palavras; NMI, pureza,
+acurácia e F1 avaliam a relação de =theta= com as categorias. As famílias de
+métricas respondem a perguntas diferentes. A inspeção humana dos tópicos segue
+necessária, pois coerência automática se correlaciona apenas imperfeitamente
+com julgamento humano.

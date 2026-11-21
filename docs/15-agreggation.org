@@ -1,0 +1,390 @@
+#+title: Agregação de resultados e comparação estatística
+#+subtitle: Documentação de src/Ogbn/aggregate.py
+#+options: toc:2 num:nil
+
+* Objetivo
+
+O módulo =aggregate.py= reúne os resultados experimentais previamente
+salvos em arquivos JSON e os transforma em tabelas consolidadas para
+análise e apresentação no artigo.
+
+Além de calcular estatísticas descritivas por modelo, o módulo implementa
+comparações pareadas entre modelos, considerando os índices de semente
+compartilhados. Também avalia um conjunto predefinido de hipóteses
+experimentais, com intervalos de confiança, testes t pareados e correção
+de Holm-Bonferroni.
+
+O módulo não treina modelos nem executa experimentos. Ele consome os
+arquivos produzidos pelas etapas anteriores do pipeline.
+
+* Interface de execução
+
+Exemplo:
+
+#+begin_src sh
+python -m src.Ogbn.aggregate \
+    --root data/ogbn \
+    --emb minilm \
+    --topics 50 \
+    --ref ctm
+#+end_src
+
+Parâmetros:
+
+| Parâmetro | Padrão | Descrição |
+|-----------+--------+-----------|
+| =--root= | =data/ogbn= | Diretório raiz dos dados e resultados. |
+| =--emb= | =minilm= | Identificador da representação de documentos utilizada. |
+| =--topics= | =50= | Número de tópicos =K= dos experimentos. |
+| =--tag= | vazio | Identificador adicional dos resultados. |
+| =--ref= | =ctm= | Modelo de referência para comparações pareadas. |
+
+Os resultados são procurados no diretório:
+
+#+begin_src text
+<root>/results/<emb>/<fingerprint>/
+#+end_src
+
+O =fingerprint= é obtido por meio de =data.load(root, with_bow=False)=,
+portanto a agregação utiliza a mesma identificação de corpus definida
+pelo módulo =data.py=.
+
+* Modelos e métricas
+
+** Identificação dos modelos
+
+O dicionário =NAMES= associa os identificadores internos dos modelos
+aos nomes apresentados nas tabelas.
+
+| Identificador | Nome apresentado |
+|---------------+------------------|
+| =lda= | LDA |
+| =nmf= | NMF |
+| =bertopic= | BERTopic |
+| =prodlda= | ProdLDA |
+| =ctm= | CTM |
+| =ctm_knn= | CTM + kNN |
+| =ctm_cite= | CTM + citação |
+| =ctm_both= | CTM + kNN + citação |
+| =ctm_rand= | CTM + vizinhos aleatórios |
+| =zeroshot= | Só embedding |
+| =zeroshot_both= | Só embedding + grafo |
+
+A ordem das linhas das tabelas segue a ordem definida em =ORDER=,
+derivada das chaves de =NAMES=.
+
+** Métricas apresentadas
+
+A tabela principal considera as seguintes métricas:
+
+| Campo no JSON | Nome na tabela | Interpretação |
+|---------------+----------------+---------------|
+| =npmi= | NPMI | Coerência dos tópicos. |
+| =diversity= | Diversidade | Diversidade das palavras dos tópicos. |
+| =nmi_test= | NMI | Informação mútua normalizada no conjunto de teste. |
+| =acc_test= | Acc. | Acurácia no conjunto de teste. |
+| =f1_test= | F1-macro | F1 macro no conjunto de teste. |
+| =n_active= | Tópicos ativos | Quantidade de tópicos ativos. |
+| =elapsed_min= | Tempo (min) | Tempo de execução convertido para minutos. |
+
+O tempo é calculado a partir do campo =elapsed_s= dos resultados JSON.
+
+* Carregamento dos resultados
+
+** Diretório de resultados
+
+A função =results_dir(root, emb)= constrói o caminho a partir do
+diretório raiz, do identificador de embedding e do fingerprint do corpus.
+
+** Leitura dos arquivos
+
+A função =load(root, emb, K, tag)= procura arquivos que correspondam
+ao padrão:
+
+#+begin_src text
+*_K<K>*_s*.json
+#+end_src
+
+Cada arquivo é interpretado como um resultado experimental em JSON.
+
+São mantidos somente os registros cujo campo =K= corresponde ao valor
+solicitado e cujo campo =tag= corresponde ao argumento recebido.
+
+Para cada resultado, são extraídos:
+
+- =model=: identificador do modelo;
+- =seed=: semente experimental;
+- =elapsed_s=: tempo de execução, convertido para minutos;
+- =metrics=: métricas registradas pelo experimento.
+
+Os dados são reunidos em um =DataFrame= do pandas.
+
+** Dependências do formato JSON
+
+A agregação espera que os arquivos contenham, no mínimo, os campos:
+
+#+begin_src json
+{
+  "model": "...",
+  "seed": 0,
+  "K": 50,
+  "elapsed_s": 0.0,
+  "metrics": {}
+}
+#+end_src
+
+O conteúdo de =metrics= deve incluir as métricas utilizadas pelas
+tabelas e pelas comparações solicitadas.
+
+* Tabela descritiva
+
+A função =table(df)= calcula estatísticas por modelo.
+
+Para cada modelo presente nos dados, são calculadas:
+
+- média das métricas;
+- desvio-padrão amostral das métricas, com =ddof=1=;
+- quantidade de sementes disponíveis;
+- média do tempo de execução;
+- média do número de tópicos ativos.
+
+As métricas, exceto =n_active= e =elapsed_min=, são formatadas como:
+
+#+begin_src text
+média ± desvio-padrão
+#+end_src
+
+O desvio-padrão é definido como zero quando existe somente uma observação.
+
+O número de tópicos ativos e o tempo de execução são apresentados somente
+como médias, sem desvio-padrão.
+
+A quantidade de sementes corresponde ao número de registros disponíveis
+para cada modelo, não necessariamente ao número de sementes esperado
+para todos os experimentos.
+
+* Comparações pareadas
+
+A função =paired(df, ref, key)= compara cada modelo com um modelo de
+referência, utilizando uma métrica por vez.
+
+O pareamento é feito pelo campo =seed=:
+
+1. Os resultados do modelo de referência são indexados pela semente.
+2. Os resultados do modelo avaliado também são indexados pela semente.
+3. Calcula-se a diferença entre os valores correspondentes.
+4. Pares sem observações em ambos os modelos são descartados.
+
+A diferença é definida como:
+
+#+begin_src text
+d(seed) = métrica(modelo, seed) - métrica(referência, seed)
+#+end_src
+
+Para pelo menos duas diferenças pareadas, são calculados:
+
+- média das diferenças;
+- intervalo de confiança de 95% baseado na distribuição t de Student;
+- quantidade de pares utilizados.
+
+O intervalo é calculado por:
+
+#+begin_src text
+média(d) ± t(0.975, n-1) * s(d) / sqrt(n)
+#+end_src
+
+Essa função não calcula nem apresenta um valor-p.
+
+No fluxo principal, ela é chamada para:
+
+- =npmi=;
+- =nmi_test=;
+- =acc_test=.
+
+O modelo de referência é selecionado por =--ref=.
+
+* Análise de hipóteses
+
+** Hipóteses predefinidas
+
+A lista =HYP= define as comparações que serão realizadas. Cada entrada
+contém:
+
+#+begin_src python
+(hypothesis, comparison_label, model, reference, metric, kind)
+#+end_src
+
+O campo =kind= pode ser:
+
+- =diff=: diferença direta entre os valores de uma métrica;
+- =gap=: diferença entre as quedas de validação para teste.
+
+As comparações são organizadas pelas seguintes famílias:
+
+| Família | Comparações |
+|---------+-------------|
+| H1 | CTM versus ProdLDA. |
+| H2 | CTM com informação de grafo versus CTM. |
+| H3 | Comparações entre configurações de grafo. |
+| controle | kNN versus vizinhos aleatórios e vizinhos aleatórios versus CTM. |
+| extra | Modelos que utilizam somente embeddings, com ou sem grafo. |
+| H4 | Comparação das quedas entre validação e teste. |
+
+A lista =HYP= é a definição operacional das comparações. A interpretação
+científica de cada hipótese deve ser apresentada no artigo.
+
+** Diferenças diretas
+
+Para =kind="diff"=, a função =series= retorna a série da métrica
+selecionada para cada modelo.
+
+A diferença pareada é:
+
+#+begin_src text
+d(seed) = métrica(modelo, seed) - métrica(referência, seed)
+#+end_src
+
+Por exemplo, uma comparação de NMI entre =ctm_knn= e =ctm= mede a
+diferença entre os respectivos valores de =nmi_test= para cada semente
+compartilhada.
+
+** Queda entre validação e teste
+
+Para =kind="gap"=, a função =series= calcula:
+
+#+begin_src text
+gap = métrica_val - métrica_test
+#+end_src
+
+Em seguida, compara os gaps dos dois modelos:
+
+#+begin_src text
+d(seed) = gap(modelo, seed) - gap(referência, seed)
+#+end_src
+
+Assim, um valor positivo indica que o modelo avaliado apresenta uma
+queda validação-teste maior que a do modelo de referência.
+
+Um valor negativo indica uma queda menor.
+
+Essa comparação não é uma diferença direta entre os valores de teste:
+ela compara a diferença entre validação e teste de cada modelo.
+
+** Teste t pareado
+
+Para cada comparação com pelo menos duas diferenças, são calculados:
+
+- média das diferenças pareadas;
+- intervalo de confiança de 95%;
+- teste t bilateral de uma amostra sobre as diferenças, contra zero;
+- indicação de o intervalo de confiança excluir ou não zero.
+
+O teste é implementado como:
+
+#+begin_src python
+stats.ttest_1samp(d, 0.0)
+#+end_src
+
+Isso equivale a testar se a média das diferenças pareadas é diferente
+de zero.
+
+Se o desvio-padrão amostral das diferenças for zero, o código atribui
+=1.0= ao valor-p.
+
+** Correção de Holm-Bonferroni
+
+A função =holm(p)= implementa a correção de Holm-Bonferroni para
+múltiplas comparações.
+
+O procedimento:
+
+1. Ordena os valores-p em ordem crescente.
+2. Multiplica cada valor-p pelo número de hipóteses ainda não avaliadas.
+3. Aplica o máximo acumulado para garantir monotonicidade.
+4. Limita os valores ajustados ao intervalo [0, 1].
+5. Retorna os resultados na ordem original.
+
+A correção é aplicada separadamente para cada grupo identificado pelo
+campo =H= de =HYP=.
+
+Portanto, as famílias H1, H2, H3, controle, extra e H4 são corrigidas
+separadamente, e não como um único conjunto global de comparações.
+
+A coluna =sig. após Holm= indica se o valor-p ajustado é inferior a
+0,05.
+
+** Interpretação estatística
+
+Os intervalos de confiança e os testes são calculados a partir das
+diferenças entre sementes correspondentes.
+
+Com apenas cinco sementes, as estimativas são baseadas em uma amostra
+pequena. Os resultados devem ser interpretados como evidência
+exploratória, não como demonstração definitiva de significância ou
+superioridade.
+
+O artigo deve informar o número de sementes efetivamente utilizado em
+cada comparação e a aplicação da correção de Holm dentro de cada família.
+
+* Exportação
+
+O fluxo principal produz três formatos para a tabela descritiva:
+
+#+begin_src text
+<results>/table_K<K>.csv
+<results>/table_K<K>.tex
+<results>/table_K<K>.org
+#+end_src
+
+Quando =--tag= é informado, o nome recebe o sufixo correspondente:
+
+#+begin_src text
+table_K<K>_<tag>.csv
+table_K<K>_<tag>.tex
+table_K<K>_<tag>.org
+#+end_src
+
+A tabela de hipóteses é salva em:
+
+#+begin_src text
+<results>/hypotheses_K<K>.org
+#+end_src
+
+ou com o sufixo de tag, quando aplicável.
+
+A tabela descritiva também é impressa no terminal. A tabela de hipóteses
+é impressa quando existem comparações válidas.
+
+* Limitações e cuidados
+
+- A agregação depende dos arquivos JSON já existentes. Ela não verifica
+  se todos os experimentos esperados foram executados.
+- A quantidade de sementes pode variar entre modelos.
+- As comparações pareadas descartam sementes sem correspondência entre
+  os dois modelos.
+- A tabela descritiva calcula média e desvio-padrão sobre todos os
+  registros disponíveis para cada modelo, mesmo que os conjuntos de
+  sementes sejam diferentes.
+- A função =paired= não aplica correção para múltiplas comparações.
+- A função =hypotheses= aplica Holm separadamente por família (=H=).
+- O teste t e os intervalos de confiança dependem de uma amostra pequena
+  quando são utilizadas poucas sementes.
+- Se houver mais de um arquivo com o mesmo modelo e a mesma semente,
+  não existe uma etapa explícita de deduplicação.
+- O carregamento pressupõe que os campos esperados existam nos JSONs.
+- A comparação H4 depende da presença dos campos de validação e teste,
+  como =nmi_val=, =nmi_test=, =acc_val= e =acc_test=.
+- O resultado de uma comparação estatística não estabelece, por si só,
+  uma explicação causal para a diferença observada.
+
+* Relação com outros módulos
+
+- =data.py=: fornece o fingerprint utilizado para localizar os
+  resultados do corpus.
+- =run_experiment.py=: produz os arquivos JSON consumidos pela agregação.
+- =evaluate.py=: define as métricas registradas nos resultados.
+- =compare_topics.py=: utiliza =results_dir= para localizar resultados
+  individuais e realizar comparações qualitativas.
+- =ablation.py=: produz tabelas específicas de sensibilidade a
+  hiperparâmetros.
+- =stability.py=: analisa a estabilidade dos tópicos entre sementes.

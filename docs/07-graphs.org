@@ -1,0 +1,112 @@
+#+title: Construção dos grafos e propagação
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Módulo
+
+=graphs.py=
+
+* Objetivo
+
+Construir grafos de vizinhança baseados em citações, similaridade kNN entre
+embeddings, combinação das duas fontes ou vizinhos aleatórios de controle.
+Depois, pré-calcular atributos propagados para uso por modelos que recebem
+representações do tipo SIGN.
+
+* Protocolo temporal indutivo
+
+Um nó do split =s= só pode receber vizinhos de splits menores ou iguais a =s=:
+
+| Linhas consultadas | Pool de vizinhos permitido |
+|--------------------+----------------------------|
+| treino | treino |
+| validação | treino + validação |
+| teste | treino + validação + teste |
+
+A função =citation_pairs= converte cada aresta em pares nos dois sentidos e
+mantém o par somente quando =split[neighbor] <= split[row]=. Embora as arestas
+originais representem citações dirigidas, a vizinhança resultante é tratada como
+não dirigida, sujeita à restrição temporal.
+
+A função =knn_pairs= aplica o mesmo protocolo por split. A ideia é impedir que
+uma linha use vizinhos de splits futuros. O código usa o ranking dos splits
+como uma comparação vetorizada.
+
+* Vizinhos kNN
+
+Para cada split, as linhas consultadas são comparadas com o pool permitido por
+produto interno dos embeddings:
+
+#+begin_src python
+S = E[q] @ P.T
+#+end_src
+
+O próprio documento é excluído quando está no pool. A seleção usa
+=argpartition= para obter até =k= vizinhos por linha. O processamento é
+dividido em blocos de 512 linhas para limitar o tamanho da matriz de
+similaridades intermediária.
+
+O número efetivo de vizinhos é limitado pelo tamanho do pool menos um.
+
+* Tipos de grafo
+
+A função =build_adjacency= aceita:
+- =none=: não constrói adjacência e retorna =None=;
+- =knn=: vizinhos por similaridade de embeddings;
+- =cite=: pares derivados das citações;
+- =both=: união das vizinhanças de citação e kNN;
+- =rand=: controle com vizinhos aleatórios.
+
+O controle aleatório usa o mesmo pool temporal permitido, mas não a similaridade
+textual. A seed usada por =random_pairs= é 0 por padrão; a chamada em
+=build_adjacency= não expõe uma seed própria.
+
+* Adjacência média
+
+=to_mean_adjacency= cria uma matriz esparsa CSR:
+1. constrói uma matriz a partir dos pares;
+2. soma duplicatas e converte os valores restantes em binários;
+3. calcula o grau de cada linha;
+4. multiplica cada linha pelo inverso do grau.
+
+Logo, cada linha não isolada soma 1 e representa a média dos atributos dos
+vizinhos. Linhas sem vizinhos permanecem nulas.
+
+* Propagação
+
+=propagate(X, A, hops)= concatena os atributos originais e suas propagações:
+
+#+begin_example
+F = [X, AX, A²X, ..., A^hops X]
+#+end_example
+
+Com =A=None=, retorna =X= convertido para =float32=. Com adjacência, cada
+iteração multiplica a representação corrente por =A= e concatena o resultado.
+O encoder pode então aprender uma transformação linear sobre a concatenação,
+equivalente a combinar de forma aprendida os diferentes alcances de propagação,
+com a propagação fixa e pré-computada.
+
+* Estatísticas
+
+=graph_stats= calcula, por split, grau médio e fração de nós isolados. Como a
+adjacência é esparsa e binária antes da normalização, o número de entradas por
+linha representa o grau distinto.
+
+* Cache kNN e riscos
+
+O cache é nomeado =knn_<emb_name>_k<k>.npz=. O código reutiliza o arquivo se ele
+existir, sem verificar fingerprint do corpus, conteúdo dos embeddings, split,
+parâmetros ou checksum. Portanto, reutilizar o mesmo diretório após alterações
+pode carregar pares incompatíveis. O cache deve ser removido ou isolado por
+configuração quando os dados ou embeddings mudarem.
+
+* Interpretação metodológica
+
+- O protocolo é indutivo por split, mas validação e teste podem usar vizinhos do
+  próprio split; isso corresponde à definição implementada, não a um cenário em
+  que todos os nós de avaliação estejam ocultos uns dos outros.
+- =both= combina as duas relações e a deduplicação ocorre na adjacência final.
+- SPECTER pode já conter sinal de citações; combinar SPECTER com grafo de
+  citações não constitui uma comparação puramente textual versus relacional.
+- O grafo aleatório é um controle útil para distinguir o ganho da estrutura
+  semântica de um possível ganho genérico de agregação de vizinhos.

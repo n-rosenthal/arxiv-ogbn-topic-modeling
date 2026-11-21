@@ -1,71 +1,73 @@
 #+title: Fluxo de execução
-#+startup: overview
-#+options: toc:2
+#+language: pt_BR
+#+options: toc:2 num:nil
 
-* Orquestrador: =run_all.sh=
-Executar a partir da raiz do repositório (diretório que contém =src/=):
-#+begin_src sh
-bash src/Ogbn/run_all.sh
-#+end_src
+* Visão geral
 
-O script usa =set -euo pipefail=, cria =logs/= e registra a saída em =logs/run_all_<data-hora>.log=.
+O script =run_all.sh= coordena a preparação dos dados e a execução de vários
+modelos. O fluxo geral é:
 
-* Parâmetros
-| Variável | Padrão | Significado |
-|-----------+-------------------------------+-------------------------------|
-| =ROOT= | =data/ogbn= | Raiz dos dados e resultados. |
-| =EMB= | =minilm= | Identificador dos embeddings. |
-| =K= | =50= | Número de tópicos. |
-| =SEEDS= | =0 1 2 3 4= | Seeds. |
-| =MAXN= | vazio | Limite opcional de documentos. |
-| =TEXT_MODE= | =full= | =full= ou =title=. |
-| =RAW_DIR= | vazio | Diretório alternativo de dados brutos. |
-| =MODELS= | =lda nmf prodlda ctm ctm_knn ctm_cite ctm_both= | Modelos do pipeline padrão. |
-| =NBR_K= | =10= | Número de vizinhos kNN. |
-| =TAG= | vazio | Sufixo para separar execuções. |
+1. baixar os dados brutos, salvo quando =RAW_DIR= é fornecido;
+2. construir o corpus processado;
+3. gerar características BoW;
+4. gerar embeddings;
+5. executar os modelos para cada seed;
+6. agregar resultados após cada seed.
 
-As variáveis podem ser sobrescritas no ambiente.
+* Configuração padrão observada
 
-* Ordem
-1. Se =RAW_DIR= estiver vazio, executa =download=.
-2. Executa =corpus= com =TEXT_MODE= e =MAXN=.
-3. Executa =text_features= com =min-df=20=, =max-df=0.3= e =max-features=5000=.
-4. Executa =embeddings= com o identificador =EMB=.
-5. Para cada seed, executa todos os modelos.
-6. Tenta agregar os resultados depois de cada seed.
+| Parâmetro | Padrão |
+|-----------+--------|
+| =ROOT= | =data/ogbn= |
+| =EMB= | =minilm= |
+| =K= | =50= |
+| =SEEDS= | =0 1 2 3 4= |
+| =TEXT_MODE= | =full= |
+| =NBR_K= | =10= |
+| =min-df= | =20= |
+| =max-df= | =0.3= |
+| =max-features= | =5000= |
 
-O loop é seed-major: completa os modelos de uma seed antes de avançar. A agregação usa =|| true=; falhas nessa etapa não encerram o script.
+A lista padrão de modelos do shell inclui =lda=, =nmf=, =prodlda=, =ctm=,
+=ctm_knn=, =ctm_cite= e =ctm_both=. O executor individual também reconhece
+outras variantes.
 
-* Runner: =run_experiment.py=
-A função =run(...)= carrega o corpus, exige BoW, carrega embeddings quando necessários, constrói entradas de grafo para modelos pertinentes, treina, avalia e grava um JSON por execução.
+* Etapas
 
-* Modelos reconhecidos
-=ALL= contém =lda=, =nmf=, =bertopic= e:
-| Modelo | Grafo | Embeddings | BoW no encoder |
-|-----------+---------+------------+----------------|
-| =prodlda= | nenhum | não | sim |
-| =ctm= | nenhum | sim | sim |
-| =ctm_knn= | kNN | sim | sim |
-| =ctm_cite= | citações | sim | sim |
-| =ctm_both= | combinado | sim | sim |
-| =ctm_rand= | aleatório | sim | sim |
-| =zeroshot= | nenhum | sim | não |
-| =zeroshot_both= | combinado | sim | não |
+** Preparação
 
-A lista padrão de =MODELS= não inclui todos os modelos aceitos pelo runner.
+O pipeline chama aquisição, corpus, características textuais e embeddings nessa
+ordem. A construção de BoW usa parâmetros explícitos no shell: mínimo de
+documentos 20, máximo 30% e até 5.000 atributos.
 
-* Saídas e retomada
-Caminho dos resultados:
-#+begin_src text
-<root>/results/<emb>/<corpus-fingerprint>/
-    <model>_K<K>[_tag]_s<seed>.json
-#+end_src
+** Experimentos por seed
 
-Se o JSON já existe, o runner pula a execução, salvo com =--force=. O argumento =--save-theta= salva adicionalmente as distribuições theta do conjunto de teste.
+Para cada seed, =run_experiment.py= carrega o =Bundle=, verifica a presença dos
+artefatos necessários ao modelo, executa treinamento e avaliação e grava um JSON
+sob:
 
-* Hiperparâmetros
-O runner aceita =--hidden=, =--dropout=, =--theta-dropout=, =--lr=, =--batch=, =--epochs=, =--kl-weight=, =--kl-anneal= e =--no-decoder-bn=. Os defaults efetivos precisam ser conferidos em =ctm.py=.
+#+begin_example
+<root>/results/<emb>/<corpus-fingerprint>/<model>_K<K>[_tag]_s<seed>.json
+#+end_example
 
-* Observações
-- O script sempre invoca corpus, features e embeddings; o cache dessas etapas depende de cada módulo.
-- Sucesso do script não garante agregação bem-sucedida.
+Resultados existentes são ignorados, a menos que =--force= seja usado.
+Parâmetros neurais adicionais podem ser configurados pela CLI, incluindo
+dimensão oculta, dropout, taxa de aprendizado, batch size, épocas e peso/
+annealing do KL. =--save-theta= solicita a persistência das distribuições
+documento-tópico.
+
+** Agregação
+
+O shell tenta agregar resultados depois de cada seed. A chamada de agregação é
+tolerada com =|| true=, portanto uma falha nessa etapa não necessariamente
+interrompe o restante do pipeline.
+
+* Implicações operacionais
+
+- O uso de =set -euo pipefail= torna erros não tolerados nas etapas principais
+  capazes de interromper o script.
+- A agregação tolerada pode ocultar falhas; os logs devem ser inspecionados.
+- A existência de um JSON de resultado pode fazer o executor pular uma
+  repetição, mesmo que a configuração atual tenha mudado. Use nomes/tags
+  distintos ou =--force= quando necessário.
+- Os artefatos BoW e embeddings devem corresponder ao corpus carregado.

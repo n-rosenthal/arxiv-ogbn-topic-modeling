@@ -1,0 +1,78 @@
+#+title: Características textuais BoW
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Módulo
+
+=text_features.py=
+
+* Objetivo
+
+Construir uma matriz bag-of-words (BoW) a partir dos textos de título e abstract,
+usando =CountVectorizer= do scikit-learn.
+
+* Tokenização e vocabulário
+
+A expressão regular é:
+
+#+begin_src python
+r"(?u)\b[a-zA-Z][a-zA-Z0-9\-]{2,}\b"
+#+end_src
+
+Ela exige que o token comece com letra ASCII e tenha ao menos três caracteres;
+os caracteres seguintes podem ser letras ASCII, dígitos ou hífen. Isso exclui
+tokens iniciados por caracteres não ASCII.
+
+As stopwords combinam =ENGLISH_STOP_WORDS= com uma lista adicional específica
+do domínio (por exemplo, =paper=, =propose=, =method=, =results=, =using=,
+=approach=, =et= e =al=).
+
+* Ajuste sem vazamento de vocabulário
+
+O código seleciona somente os textos de treino e executa =vec.fit(train_texts)=.
+Depois, transforma todos os textos com o vocabulário aprendido:
+
+#+begin_src python
+vec.fit(train_texts)
+X = vec.transform(b.texts).tocsr()
+#+end_src
+
+Assim, a seleção do vocabulário e os limiares =min_df= e =max_df= dependem
+apenas do treino. Validação e teste são representados no espaço de atributos
+aprendido no treino, sem participar do ajuste do vocabulário.
+
+* Parâmetros
+
+| Parâmetro | Padrão |
+|-----------+--------|
+| =min_df= | 20 |
+| =max_df= | 0.3 |
+| =max_features= | 5000 |
+| =ngram= | 1 |
+| =lowercase= | true |
+| =dtype= | =float32= |
+
+O intervalo de n-gramas é =(1, ngram)=. A matriz contém contagens brutas; o
+módulo não aplica normalização TF-IDF nem normalização por documento.
+
+* Saídas
+
+- =features/bow.npz=: matriz esparsa CSR.
+- =features/vocab.json=: vocabulário ordenado correspondente às colunas.
+
+O relatório de execução inclui número de documentos, tamanho do vocabulário,
+documentos vazios, mediana de tokens por documento e média de elementos não
+nulos por documento.
+
+* Limitações e reprodutibilidade
+
+- Os nomes dos arquivos não incorporam fingerprint do corpus.
+- Não é salvo manifesto com os parâmetros efetivos nem versão do scikit-learn.
+- Alterar parâmetros e executar novamente pode sobrescrever os mesmos artefatos.
+- A matriz armazena contagens, não TF-IDF; os modelos podem aplicar suas próprias
+  transformações posteriormente.
+
+* Relação com outros módulos
+
+=data.py= carrega a matriz e o vocabulário. =baselines.py= usa BoW diretamente
+no LDA e transforma BoW em TF-IDF para NMF.

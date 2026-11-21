@@ -1,0 +1,248 @@
+#+title: Informações do ambiente experimental
+#+subtitle: Documentação de src/Ogbn/env_info.py
+#+options: toc:2 num:nil
+
+* Objetivo
+
+O módulo =env_info.py= coleta e imprime informações sobre o ambiente
+de software e hardware utilizado na execução dos experimentos.
+
+Sua finalidade é auxiliar a documentação da configuração experimental
+do artigo, registrando versões de dependências, informações do sistema
+operacional, disponibilidade de CUDA e características básicas da
+máquina.
+
+O módulo é exclusivamente informativo: não executa experimentos,
+não modifica configurações e não salva automaticamente os dados
+coletados em arquivos.
+
+* Interface de execução
+
+O módulo pode ser executado diretamente:
+
+#+begin_src sh
+python -m src.Ogbn.env_info
+#+end_src
+
+Não existem argumentos de linha de comando.
+
+* Informações coletadas
+
+** Python e sistema operacional
+
+A função principal utiliza o módulo padrão =platform= para obter:
+
+#+begin_src python
+platform.python_version()
+platform.platform()
+#+end_src
+
+A saída contém:
+
+- versão do Python;
+- identificação da plataforma, incluindo informações do sistema
+  operacional e arquitetura.
+
+** Dependências Python
+
+As versões dos pacotes são obtidas por meio de:
+
+#+begin_src python
+from importlib import metadata
+#+end_src
+
+O módulo consulta os seguintes pacotes:
+
+| Pacote | Finalidade no pipeline |
+|--------+------------------------|
+| =torch= | Implementação dos modelos neurais e operações tensoriais. |
+| =scikit-learn= | Modelos e métricas de aprendizado de máquina. |
+| =sentence-transformers= | Geração de embeddings de documentos. |
+| =numpy= | Operações numéricas e manipulação de arrays. |
+| =scipy= | Operações científicas e algoritmos auxiliares. |
+| =pandas= | Manipulação de tabelas e metadados. |
+| =transformers= | Modelos e componentes de processamento de linguagem natural. |
+
+A versão é consultada por:
+
+#+begin_src python
+metadata.version(pkg)
+#+end_src
+
+Se um pacote não estiver instalado, o módulo registra:
+
+#+begin_src text
+<pacote> (not installed)
+#+end_src
+
+O tratamento é feito por meio de =metadata.PackageNotFoundError=.
+
+** CUDA e PyTorch
+
+O módulo tenta importar =torch= e, quando disponível, registra:
+
+#+begin_src python
+torch.cuda.is_available()
+torch.get_num_threads()
+#+end_src
+
+As informações apresentadas são:
+
+- disponibilidade de CUDA;
+- quantidade de threads utilizada pelo PyTorch.
+
+Se CUDA estiver disponível, também registra o nome da primeira GPU:
+
+#+begin_src python
+torch.cuda.get_device_name(0)
+#+end_src
+
+Se =torch= não puder ser importado, essa seção é simplesmente omitida.
+
+A implementação não consulta explicitamente a disponibilidade de MPS
+ou outros dispositivos de aceleração.
+
+** CPU
+
+A identificação do processador é obtida por meio do comando:
+
+#+begin_src sh
+lscpu | grep 'Model name' | sed 's/.*: *//'
+#+end_src
+
+A quantidade de núcleos é consultada com:
+
+#+begin_src sh
+nproc
+#+end_src
+
+Esses comandos são executados por meio de =subprocess.run=.
+
+** Memória RAM
+
+A quantidade total de memória é obtida com:
+
+#+begin_src sh
+free -h | awk '/Mem:/{print $2}'
+#+end_src
+
+O valor é apresentado em formato legível para humanos, conforme
+a saída de =free -h=.
+
+* Implementação
+
+** Execução de comandos do sistema
+
+A função auxiliar =_run(cmd)= executa comandos do sistema operacional:
+
+#+begin_src python
+subprocess.run(
+    cmd,
+    shell=True,
+    capture_output=True,
+    text=True,
+    timeout=20
+)
+#+end_src
+
+A função retorna a saída padrão (=stdout=), removendo espaços em
+branco nas extremidades.
+
+Se ocorrer uma exceção durante a execução, retorna uma string vazia.
+
+O tempo limite de execução é de 20 segundos.
+
+** Tratamento de erros
+
+O módulo possui dois mecanismos principais de tolerância a falhas:
+
+1. A função =_run= captura exceções durante a execução de comandos
+   externos e retorna uma string vazia.
+2. A consulta de versões trata pacotes ausentes por meio de
+   =PackageNotFoundError=.
+3. A seção de informações do PyTorch trata a ausência do pacote
+   por meio de =ImportError=.
+
+A ausência de informações de hardware não interrompe necessariamente
+a coleta das demais informações.
+
+* Formato da saída
+
+A saída é textual e organizada em linhas.
+
+Exemplo esquemático:
+
+#+begin_src text
+python <versão> | <plataforma>
+torch <versão>
+scikit-learn <versão>
+sentence-transformers <versão>
+numpy <versão>
+scipy <versão>
+pandas <versão>
+transformers <versão>
+cuda available: <True/False> | threads: <quantidade>
+gpu: <nome da GPU>
+cpu: <modelo> | cores: <quantidade>
+ram: <quantidade>
+#+end_src
+
+A linha de GPU aparece somente quando CUDA está disponível.
+
+* Limitações e cuidados
+
+- O módulo imprime as informações no terminal, mas não as persiste
+  automaticamente em JSON, YAML ou outro formato estruturado.
+- A coleta de CPU, núcleos e RAM depende de comandos específicos de
+  ambientes Linux, como =lscpu=, =nproc= e =free=.
+- Em sistemas sem esses comandos, os campos correspondentes podem
+  aparecer vazios.
+- A função =_run= captura exceções, mas não verifica explicitamente
+  o código de retorno dos comandos. Uma execução malsucedida que não
+  gere exceção pode resultar em saída vazia.
+- A execução de comandos utiliza =shell=True=. Os comandos atualmente
+  fornecidos pelo próprio módulo são constantes, mas a função não
+  foi projetada para receber entradas arbitrárias de usuários.
+- A identificação de GPU considera somente CUDA. A implementação não
+  registra dispositivos MPS, ROCm ou outros backends.
+- Quando CUDA está disponível, somente o nome do dispositivo de índice
+  zero é registrado.
+- O módulo não coleta versão do driver, memória da GPU, utilização
+  de GPU ou detalhes completos da configuração CUDA.
+- A quantidade de threads do PyTorch não representa necessariamente
+  o número total de threads utilizadas por todas as bibliotecas.
+- O módulo não registra variáveis de ambiente, versões de bibliotecas
+  de sistema, dependências transitivas ou estado completo do ambiente
+  Python.
+- A saída não constitui, isoladamente, um registro completo de
+  reprodutibilidade experimental.
+
+* Uso na documentação do artigo
+
+A saída do módulo pode ser utilizada como base para preencher a seção
+de configuração experimental.
+
+Recomenda-se registrar, no mínimo:
+
+- versão do Python;
+- sistema operacional e arquitetura;
+- versões das principais dependências;
+- modelo de CPU;
+- quantidade de núcleos;
+- memória RAM;
+- disponibilidade de GPU e respectivo dispositivo;
+- configuração de threads do PyTorch.
+
+Essas informações devem ser preservadas junto aos resultados de cada
+rodada experimental quando houver mudanças relevantes no ambiente.
+
+* Relação com outros módulos
+
+- =ctm.py=: utiliza PyTorch para treinar os modelos neurais.
+- =embeddings.py=: utiliza sentence-transformers e transformers para
+  produzir embeddings.
+- =baselines.py=: utiliza componentes do scikit-learn e BERTopic.
+- =evaluate.py=: utiliza bibliotecas científicas para calcular métricas.
+- =11-reproducibility.org=: documenta as informações de ambiente
+  efetivamente registradas e os aspectos de reprodutibilidade do
+  pipeline.

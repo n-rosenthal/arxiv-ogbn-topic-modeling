@@ -1,0 +1,33 @@
+#+title: Avaliação humana por intrusão de palavras
+#+options: toc:2 num:nil
+
+* Objetivo
+=intrusion.py= implementa um teste humano de intrusão de palavras, indicado no código como inspirado em Chang et al. (2009). O avaliador recebe seis palavras e indica a posição (1–6) da palavra que não pertence ao tópico.
+
+* Geração: =make_items=
+Para cada modelo, seleciona até =n= tópicos sem reposição. Para cada tópico, forma um conjunto candidato com palavras entre as cinco primeiras de outros tópicos, excluindo as dez primeiras do tópico avaliado. Sorteia uma intrusa, combina-a com as cinco palavras do tópico e embaralha as seis posições. Ao final, embaralha itens de todos os modelos.
+
+O formulário contém apenas ID e palavras. O gabarito preserva modelo, tópico e posição correta (1-based).
+
+* Formulário e parsing
+=form_org= cria uma tabela Org com colunas 1 a 6 e =resposta=. =parse_answers= lê linhas com ID numérico e ao menos oito células; converte o oitavo campo em inteiro quando numérico. Respostas vazias ou não numéricas tornam-se =None=. Não há validação de faixa 1–6.
+
+* Pontuação: =score=
+Respostas ausentes são ignoradas. Para cada modelo, calcula a proporção de acertos. O IC95% é obtido por bootstrap de tópicos, com 5.000 réplicas por padrão: cada réplica amostra, com reposição, o mesmo número de indicadores binários de acerto; os percentis 2,5 e 97,5 formam o intervalo.
+
+* CLI e artefatos
+#+begin_src sh
+python -m src.Ogbn.intrusion make --root data/ogbn --emb minilm --topics 50 --models ctm ctm_both --seed 0 --n 25
+python -m src.Ogbn.intrusion score --root data/ogbn --emb minilm --topics 50
+#+end_src
+
+=make= cria =intrusion_form.org= e =intrusion_key.json= (gabarito confidencial). =score= lê ambos e escreve =intrusion_result.org=.
+
+* Limitações metodológicas
+- Intrusos são amostrados dentro do próprio modelo; o teste mede coerência relativa dos tópicos, mas a dificuldade pode diferir entre modelos.
+- Se o conjunto candidato estiver vazio, =rng.choice= falha.
+- Pressupõe pelo menos cinco palavras por tópico.
+- O dicionário interno indexado por modelo/tópico sobrescreve respostas duplicadas para o mesmo tópico.
+- O bootstrap reamostra tópicos observados, não avaliadores; não estima variabilidade entre avaliadores.
+- A taxa de não resposta não é reportada separadamente.
+- Respostas numéricas fora de 1–6 são aceitas pelo parser e contam como erro.

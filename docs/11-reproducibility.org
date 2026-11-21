@@ -1,0 +1,65 @@
+#+title: Reprodutibilidade, caches e limitações
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Seeds
+
+A seed é propagada a etapas que a aceitam explicitamente, como amostragem do
+corpus, SVD, modelos e seleção de subconjunto para o classificador de avaliação.
+Nem toda operação determinística ou cacheada é necessariamente controlada por
+uma única seed global.
+
+* Fingerprint do corpus
+
+O fingerprint atual deriva somente dos IDs ordenados dos artigos. Não incorpora
+texto, rótulos, arestas, splits ou parâmetros. É um identificador parcial, não
+um hash integral do estado experimental.
+
+* Inventário de caches observado
+
+| Artefato | Chave observada | Validação |
+|----------+------------------+-----------|
+| chunks de embeddings | modelo + fingerprint | existência do arquivo |
+| kNN | nome do embedding + k | existência do arquivo |
+| BoW | caminho fixo | sem manifesto de parâmetros |
+| embeddings finais | nome do modelo | caminho fixo |
+| resultados | embedding, fingerprint, modelo, K, seed, tag opcional | existência/force |
+
+* Riscos
+
+- Um cache pode sobreviver a alterações de texto, split ou parâmetros.
+- Um arquivo existente pode estar incompleto ou incompatível sem ser detectado.
+- Resultados podem ser ignorados pelo executor mesmo quando os parâmetros
+  atuais diferem dos que produziram o JSON.
+- O ambiente registrado deve acompanhar os resultados: Python, bibliotecas,
+  hardware, dispositivo e configuração de threads.
+
+* Recomendações
+
+1. Registrar em manifesto JSON os parâmetros, versões, seed, fingerprint
+   completo e hashes dos artefatos de entrada.
+2. Incluir parâmetros críticos nas chaves de cache ou invalidar caches quando
+   eles mudarem.
+3. Validar shape, dtype e checksum ao carregar artefatos cacheados.
+4. Salvar a configuração efetiva junto de cada resultado.
+5. Manter logs por execução e inspecionar falhas de agregação toleradas pelo
+   shell.
+6. Distinguir resultados reproduzidos de resultados apenas reutilizados.
+
+* Ambiente observado
+
+Uma execução anterior de =python -m src.Ogbn.env_info= registrou:
+- Python 3.14.6;
+- Linux x86_64, kernel 6.8.0-149-generic, glibc 2.35;
+- PyTorch 2.15.0;
+- scikit-learn 1.9.1;
+- sentence-transformers 6.2.0;
+- NumPy 2.5.4, SciPy 1.18.1 e pandas 3.1.1;
+- Transformers 5.22.2;
+- CUDA indisponível;
+- quatro threads PyTorch;
+- CPU Intel Core i5-11320H (11ª geração), 8 cores;
+- aproximadamente 7,5 GiB de RAM.
+
+Esse registro é uma fotografia do ambiente no momento da execução, não uma
+garantia sobre ambientes futuros.

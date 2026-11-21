@@ -1,0 +1,31 @@
+#+title: Aquisição dos dados
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Módulo
+
+=download.py=
+
+* Fontes
+
+O módulo obtém dois recursos:
+- =arxiv.zip= em =https://snap.stanford.edu/ogb/data/nodeproppred/arxiv.zip=;
+- =titleabs.tsv.gz= em =https://snap.stanford.edu/ogb/data/misc/ogbn_arxiv/titleabs.tsv.gz=.
+
+Os arquivos são armazenados em =data/ogbn/raw/=; o ZIP é extraído para
+=data/ogbn/raw/arxiv/=.
+
+* Estratégia de transferência
+
+- Usa =urllib= sobre HTTPS e =zipfile=; não exige o pacote Python =ogb=.
+- Ignora downloads existentes quando o arquivo de destino já é não vazio.
+- Escreve primeiro em arquivo temporário com sufixo =.part=.
+- Transfere em blocos de 1 MiB.
+- Define timeout de 60 segundos e até três tentativas.
+
+* Limitações
+
+A verificação de arquivo existente descrita pelo módulo é baseada em existência
+e tamanho não zero, não em checksum. Um arquivo truncado, mas não vazio, pode
+ser tratado como concluído. Para auditoria forte, seria desejável validar
+hashes publicados ou checksums registrados.

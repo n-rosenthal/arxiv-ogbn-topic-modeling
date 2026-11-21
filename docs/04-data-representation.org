@@ -1,0 +1,50 @@
+#+title: Representação e carregamento dos dados
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Módulo
+
+=data.py=
+
+* Constantes e estrutura
+
+=SPLITS = ("train", "val", "test")=.
+
+A dataclass =Bundle= reúne:
+- =root=: diretório raiz;
+- =nodes=: DataFrame de documentos;
+- =edges=: matriz de arestas;
+- =split=: vetor de códigos de split;
+- =labels=: vetor de categorias;
+- =texts=: lista de textos;
+- =bow= e =vocab=: atributos opcionais.
+
+* Carregamento
+
+=load(root="data/ogbn", with_bow=True)= lê =corpus/nodes.csv.gz= e
+=corpus/edges.npy=. Se solicitado, carrega =features/bow.npz= e
+=features/vocab.json=.
+
+O texto de cada documento é formado pela concatenação do título, ponto e
+abstract. =Bundle.idx()= recupera os índices de um split por nome ou código
+numérico.
+
+* Embeddings
+
+=load_embeddings(root, name)= lê =features/emb_<name>.npy= e converte o
+resultado para =float32=.
+
+* Fingerprint
+
+O fingerprint é formado pelos oito primeiros caracteres do MD5 dos bytes do
+vetor ordenado de =paper_id= convertido para =int64=.
+
+Ele identifica a sequência de IDs e sua ordem, mas não incorpora texto, rótulos,
+arestas, atributos ou parâmetros de processamento. Assim, corpora com os mesmos
+IDs e ordem, mas conteúdo textual diferente, podem compartilhar fingerprint.
+
+* Consequência
+
+O fingerprint é útil como identificador compacto, mas não equivale a um hash
+completo do dataset experimental. Resultados e caches devem ser interpretados
+com essa limitação em mente.

@@ -1,0 +1,397 @@
+#+title: Comparação qualitativa de tópicos
+#+subtitle: Documentação de src/Ogbn/compare_topics.py
+#+options: toc:2 num:nil
+
+* Objetivo
+
+O módulo =compare_topics.py= compara os tópicos produzidos por duas
+execuções experimentais.
+
+As execuções podem corresponder a:
+
+- dois modelos diferentes, utilizando a mesma semente;
+- duas sementes diferentes do mesmo modelo, para investigar estabilidade.
+
+A comparação utiliza as palavras mais representativas de cada tópico e
+o índice de Jaccard para construir uma matriz de similaridade. Em
+seguida, utiliza o algoritmo Húngaro para estabelecer uma associação
+um-para-um entre os tópicos das duas execuções.
+
+O módulo também calcula NPMI por tópico e, opcionalmente, caracteriza
+os tópicos com informações dos documentos aos quais são atribuídos.
+
+* Interface de execução
+
+Comparação entre modelos:
+
+#+begin_src sh
+python -m src.Ogbn.compare_topics \
+    --emb minilm \
+    --topics 50 \
+    --a ctm \
+    --b ctm_both \
+    --seed 0
+#+end_src
+
+Comparação entre duas sementes do mesmo modelo:
+
+#+begin_src sh
+python -m src.Ogbn.compare_topics \
+    --emb minilm \
+    --topics 50 \
+    --a ctm \
+    --b ctm \
+    --seed 0 \
+    --seed-b 1
+#+end_src
+
+Parâmetros:
+
+| Parâmetro | Padrão | Descrição |
+|-----------+--------+-----------|
+| =--root= | =data/ogbn= | Diretório raiz dos dados e resultados. |
+| =--emb= | =minilm= | Identificador do embedding utilizado. |
+| =--topics= | =50= | Número de tópicos =K=. |
+| =--a= | obrigatório | Identificador do primeiro modelo. |
+| =--b= | obrigatório | Identificador do segundo modelo. |
+| =--seed= | =0= | Semente da primeira execução. |
+| =--seed-b= | =None= | Semente da segunda execução. |
+| =--min-jaccard= | =0.3= | Limiar para considerar um par como próximo no resumo. |
+| =--tag= | vazio | Identificador adicional dos resultados. |
+
+Quando =--seed-b= não é informado, utiliza-se a mesma semente para
+as duas execuções.
+
+* Carregamento das execuções
+
+A função =_load(root, emb, model, K, seed, tag)= utiliza
+=aggregate.results_dir= para localizar os arquivos JSON.
+
+O caminho esperado segue o padrão:
+
+#+begin_src text
+<root>/results/<emb>/<fingerprint>/
+    <model>_K<K>[_<tag>]_s<seed>.json
+#+end_src
+
+A função verifica se o arquivo existe e encerra a execução com uma
+mensagem de erro caso não seja encontrado.
+
+O JSON é carregado como um dicionário. O caminho do arquivo também é
+retornado para permitir localizar os arquivos auxiliares associados
+à execução.
+
+* Representação dos tópicos
+
+Cada execução deve conter o campo =top_words=, que representa os
+tópicos como listas de palavras.
+
+#+begin_src python
+[
+    ["word_a", "word_b", "word_c"],
+    ["word_d", "word_e", "word_f"]
+]
+#+end_src
+
+Sejam:
+
+- =A=: conjunto de listas de palavras dos tópicos da execução A;
+- =B=: conjunto de listas de palavras dos tópicos da execução B.
+
+A comparação considera os conjuntos de palavras de cada tópico,
+ignorando a ordem das palavras para o cálculo de Jaccard.
+
+* Similaridade de Jaccard
+
+A função =jaccard_matrix(A, B)= constrói uma matriz de similaridade
+entre todos os pares de tópicos.
+
+Para dois tópicos =a= e =b=, a similaridade é:
+
+#+begin_src text
+J(a, b) = |a ∩ b| / |a ∪ b|
+#+end_src
+
+A matriz resultante tem dimensão:
+
+#+begin_src text
+len(A) × len(B)
+#+end_src
+
+Cada posição representa a sobreposição entre as palavras dos dois
+tópicos correspondentes.
+
+A similaridade varia entre zero e um:
+
+- =0=: nenhuma palavra compartilhada;
+- =1=: conjuntos de palavras idênticos.
+
+A ordem original das palavras não influencia o valor de Jaccard.
+
+* Associação um-para-um dos tópicos
+
+A função =match_topics(A, B)= utiliza a matriz de Jaccard para encontrar
+uma associação global entre os tópicos.
+
+A implementação utiliza:
+
+#+begin_src python
+linear_sum_assignment(-J)
+#+end_src
+
+O algoritmo Húngaro é aplicado à matriz de similaridade negativa,
+transformando a maximização da similaridade em um problema de
+minimização de custo.
+
+O resultado é uma lista de pares:
+
+#+begin_src python
+(i, j, similarity)
+#+end_src
+
+onde:
+
+- =i= é o índice do tópico na execução A;
+- =j= é o índice do tópico na execução B;
+- =similarity= é a similaridade de Jaccard entre os dois tópicos.
+
+A associação é global e um-para-um: cada tópico participa de, no máximo,
+um par.
+
+Quando as duas execuções possuem o mesmo número de tópicos, como no
+caso usual de comparação com o mesmo valor de =K=, todos os tópicos
+são associados a algum tópico da outra execução.
+
+Essa associação não implica que todos os pares sejam semanticamente
+próximos. A similaridade de cada par deve ser examinada separadamente.
+
+* NPMI por tópico
+
+O módulo calcula NPMI para os tópicos das duas execuções.
+
+Primeiro, o vocabulário é obtido de =data.load(root)= e convertido em
+um mapeamento:
+
+#+begin_src python
+w2i = {w: i for i, w in enumerate(bundle.vocab)}
+#+end_src
+
+As palavras dos tópicos são convertidas em índices do vocabulário.
+Em seguida, =evaluate.binary_csc= transforma a matriz BoW em uma
+representação binária CSC.
+
+A função auxiliar =npmi= chama:
+
+#+begin_src python
+evaluate.npmi_per_topic(topic_indices, Xbin)
+#+end_src
+
+O resultado é um valor NPMI para cada tópico.
+
+O módulo calcula e apresenta:
+
+- NPMI médio da execução A;
+- NPMI médio da execução B;
+- NPMI individual dos tópicos associados;
+- diferença de NPMI entre os tópicos associados.
+
+A diferença é definida como:
+
+#+begin_src text
+ΔNPMI = NPMI(B) - NPMI(A)
+#+end_src
+
+Os pares são ordenados em ordem crescente de ΔNPMI. Assim, os pares
+com maior queda aparecem primeiro, enquanto os pares com maior
+aumento aparecem ao final.
+
+* Perfil dos tópicos
+
+** Arquivos theta
+
+O módulo procura arquivos auxiliares com o sufixo:
+
+#+begin_src text
+<arquivo_do_resultado>_theta.npz
+#+end_src
+
+Por exemplo:
+
+#+begin_src text
+ctm_K50_s0.json
+ctm_K50_s0_theta.npz
+#+end_src
+
+O perfil é calculado somente quando os dois arquivos theta existem.
+
+A função =topic_profile(theta_path, nodes)= carrega a matriz de
+distribuição de tópicos para os documentos de teste:
+
+#+begin_src python
+th = np.load(theta_path)["test"].astype(np.float32)
+#+end_src
+
+Para cada documento, o tópico dominante é definido pelo índice do
+maior valor de theta:
+
+#+begin_src python
+arg = th.argmax(1)
+#+end_src
+
+Os documentos são então agrupados pelo tópico dominante.
+
+** Categoria dominante
+
+Para cada tópico, a categoria arXiv dominante é determinada pela
+categoria mais frequente entre os documentos atribuídos ao tópico.
+
+A função utiliza:
+
+#+begin_src python
+Counter(sel["label_name"]).most_common(1)[0]
+#+end_src
+
+A proporção da categoria dominante é calculada como:
+
+#+begin_src text
+quantidade de documentos da categoria dominante
+------------------------------------------------
+quantidade total de documentos atribuídos ao tópico
+#+end_src
+
+O perfil registra:
+
+- categoria dominante;
+- proporção dessa categoria;
+- quantidade de documentos atribuídos ao tópico;
+- ano mediano de publicação.
+
+** Ano mediano
+
+O ano mediano é calculado a partir do campo =year= dos documentos
+atribuídos ao tópico.
+
+O perfil é, portanto, uma caracterização empírica dos documentos de
+teste cujo tópico dominante é aquele tópico.
+
+Se nenhum documento de teste for atribuído a um tópico, o módulo
+registra:
+
+- categoria =-=;
+- proporção =0.0=;
+- quantidade de documentos =0=;
+- ano mediano =NaN=.
+
+* Relatório produzido
+
+O relatório contém quatro partes principais.
+
+** Resumo
+
+Apresenta:
+
+- identificação dos modelos e sementes;
+- número de pares cuja similaridade alcança o limiar =--min-jaccard=;
+- quantidade total de tópicos =K=;
+- Jaccard médio dos pares associados;
+- NPMI médio das duas execuções.
+
+O número de pares próximos é calculado por:
+
+#+begin_src text
+Jaccard >= min_jaccard
+#+end_src
+
+** Pares alinhados
+
+A tabela de pares contém:
+
+| Coluna | Conteúdo |
+|--------+----------|
+| Jaccard | Similaridade entre os tópicos associados. |
+| NPMI A | NPMI do tópico na primeira execução. |
+| NPMI B | NPMI do tópico na segunda execução. |
+| Δ | Diferença NPMI B - NPMI A. |
+| palavras A | Palavras do tópico A e perfil opcional. |
+| palavras B | Palavras do tópico B e perfil opcional. |
+
+Os pares são apresentados em ordem crescente de ΔNPMI.
+
+Quando os perfis estão disponíveis, as palavras são acompanhadas
+pela categoria dominante, proporção, número de documentos e ano mediano.
+
+** Tópicos sem contraparte próxima
+
+O módulo também lista os tópicos cuja maior similaridade com qualquer
+tópico da outra execução é inferior a =0.2=.
+
+Para a execução A, utiliza-se o maior valor de cada linha da matriz J.
+Para a execução B, utiliza-se o maior valor de cada coluna.
+
+Essa análise é independente do parâmetro =--min-jaccard=.
+
+Portanto, existem dois limiares diferentes no relatório:
+
+- =--min-jaccard=, padrão 0.3, usado para contar pares próximos;
+- =0.2=, fixo no código, usado para listar tópicos sem contraparte próxima.
+
+* Arquivo de saída
+
+O relatório é salvo no mesmo diretório dos resultados JSON.
+
+O nome segue o padrão:
+
+#+begin_src text
+qualitativa_<a>_vs_<b>_K<K>_s<seed>.org
+#+end_src
+
+Quando as sementes diferem, o nome recebe também:
+
+#+begin_src text
+_vs_s<seed-b>
+#+end_src
+
+O relatório é impresso no terminal e gravado em formato Org-mode.
+
+* Limitações e cuidados
+
+- A comparação depende da existência dos campos =top_words= nos JSONs.
+- As palavras dos tópicos precisam existir no vocabulário carregado por
+  =data.load=; uma palavra ausente causa erro na conversão para índices.
+- A análise de NPMI utiliza a matriz BoW carregada do corpus inteiro,
+  não somente documentos de treinamento.
+- Consequentemente, a interpretação do NPMI deve considerar a mesma
+  ressalva sobre o conjunto de referência utilizada na documentação
+  de =evaluate.py=.
+- A associação pelo algoritmo Húngaro sempre procura uma solução
+  global um-para-um, mas não garante que os pares tenham alta
+  similaridade.
+- A lista de tópicos sem contraparte próxima usa o limiar fixo 0.2,
+  independentemente de =--min-jaccard=.
+- O perfil de categoria e ano depende dos arquivos theta. Sem eles,
+  o relatório apresenta somente palavras e métricas dos tópicos.
+- O perfil utiliza somente documentos de teste e atribuição pelo
+  tópico de maior probabilidade, descartando a distribuição completa
+  de probabilidades.
+- A categoria dominante descreve os documentos atribuídos ao tópico;
+  não constitui uma classificação semântica validada do tópico.
+- O cálculo pressupõe compatibilidade entre a ordem dos documentos
+  de teste na matriz theta e as linhas de =nodes= filtradas pelo
+  split de teste.
+- A implementação pressupõe tópicos com listas de palavras não vazias.
+  Uma união vazia na similaridade de Jaccard produziria divisão por zero.
+- O nome do arquivo de saída não registra explicitamente o valor de
+  =--tag= nem o limiar =--min-jaccard=.
+
+* Relação com outros módulos
+
+- =aggregate.py=: fornece =results_dir= e o mecanismo de localização
+  dos resultados.
+- =data.py=: carrega corpus, vocabulário, matriz BoW e metadados dos
+  documentos.
+- =evaluate.py=: fornece a conversão binária da BoW e o cálculo de
+  NPMI por tópico.
+- =stability.py=: utiliza =match_topics= para comparar tópicos entre
+  sementes e analisar estabilidade.
+- =run_experiment.py=: produz os resultados JSON e, quando solicitado,
+  os arquivos theta.

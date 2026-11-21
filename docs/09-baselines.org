@@ -1,0 +1,89 @@
+#+title: Modelos baseline
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Módulo
+
+=baselines.py=
+
+* Objetivo e contrato
+
+Implementa modelos não neurais e não baseados em grafo, treinados somente no
+split de treino. Validação e teste são transformados com os parâmetros
+aprendidos no treino.
+
+Cada função retorna =(top_idx, theta)=, compatível com =evaluate.py=.
+
+A função auxiliar =_rownorm= soma um epsilon às entradas e normaliza cada linha
+para soma unitária. Isso transforma as representações em distribuições
+documento-tópico aproximadas.
+
+* LDA
+
+=run_lda= usa =LatentDirichletAllocation= do scikit-learn:
+- =n_components= é =K=;
+- =learning_method="online"=;
+- =batch_size= 2048;
+- =max_iter= padrão 20;
+- =random_state= recebe a seed;
+- =n_jobs=-1=;
+- =evaluate_every=-1=.
+
+O modelo é ajustado em =bow[train]=. Em seguida, =transform= é aplicado aos
+documentos de treino, validação e teste. Os pesos de =components_= são usados
+para extrair palavras de topo.
+
+* NMF
+
+=run_nmf= ajusta primeiro um =TfidfTransformer(sublinear_tf=True)= apenas no
+treino. O transformador aplica-se a todos os documentos. Depois, =NMF= é
+ajustado em =X[train]=:
+- =n_components= =K=;
+- =init="nndsvda"=;
+- =max_iter= padrão 300;
+- =random_state= recebe a seed.
+
+As componentes do NMF geram as palavras de topo. As representações transformadas
+por split são normalizadas por linha.
+
+* BERTopic
+
+=run_bertopic= usa embeddings já calculados e importa BERTopic, HDBSCAN e UMAP
+sob demanda. Requer dependências opcionais: =bertopic=, =umap-learn= e
+=hdbscan=.
+
+Configuração observada:
+- =embedding_model=None=, pois os embeddings são fornecidos externamente;
+- =nr_topics=K=;
+- vetorizar usando o vocabulário compartilhado;
+- UMAP com 15 vizinhos, 5 dimensões, =min_dist=0.0= e métrica cosseno;
+- HDBSCAN com =min_cluster_size=max(30, len(train)//1000)= e
+  =prediction_data=True=;
+- =calculate_probabilities=False=.
+
+O BERTopic é ajustado apenas nos textos e embeddings de treino. Validação e teste
+são processados por =transform= com o modelo treinado.
+
+** Atribuições e tópicos encontrados
+
+O BERTopic pode encontrar quantidade de tópicos diferente de =K=. Os IDs
+encontrados, exceto o tópico de outliers =-1=, são ordenados e remapeados para
+colunas de =theta=. As palavras são mapeadas para o vocabulário compartilhado;
+palavras ausentes são descartadas e a lista é completada com índice 0 até
+atingir =top_n=.
+
+As atribuições são hard/one-hot. Documentos outlier ou sem ID reconhecido
+recebem linha uniforme, pois a linha inicialmente zerada é substituída por
+=1 / número_de_tópicos= em cada coluna.
+
+* Comparabilidade e ressalvas
+
+- LDA opera sobre contagens BoW; NMF opera sobre TF-IDF; BERTopic usa embeddings.
+  As diferenças de entrada fazem parte da definição dos baselines.
+- O ajuste de LDA, TF-IDF/NMF e BERTopic usa apenas treino.
+- O =K= solicitado ao BERTopic não garante que sejam encontrados exatamente
+  =K= tópicos.
+- A linha uniforme atribuída a outliers não equivale a uma distribuição
+  inferida pelo modelo e pode afetar métricas baseadas em =theta=.
+- O índice 0 usado para completar listas de palavras é uma convenção de
+  preenchimento, não uma palavra semanticamente inferida.

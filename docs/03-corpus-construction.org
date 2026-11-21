@@ -1,0 +1,56 @@
+#+title: Construção do corpus
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Módulo
+
+=corpus.py=
+
+* Artefatos
+
+O corpus processado é gravado em =corpus/=:
+- =nodes.csv.gz=: tabela de documentos;
+- =edges.npy=: pares de índices de arestas;
+- =meta.json=: metadados da construção.
+
+A tabela contém =idx=, =paper_id=, =year=, =label=, =label_name=, =split=,
+=title= e =abstract=.
+
+* Junção e limpeza
+
+Os textos do TSV são associados aos nós por =paper_id=. IDs duplicados são
+removidos e espaços em branco são normalizados. O filtro exige título não vazio
+e abstract com pelo menos 30 palavras. Esse filtro ocorre antes da seleção do
+modo textual.
+
+- =full=: mantém título e abstract.
+- =title=: deixa o abstract vazio depois do filtro.
+
+Consequentemente, o modo =title= ainda depende de o abstract original ter pelo
+menos 30 palavras.
+
+* Splits temporais
+
+O código usa arquivos oficiais de split quando disponíveis. Caso contrário,
+aplica fallback por ano:
+- treino: até 2017;
+- validação: 2018;
+- teste: 2019 em diante.
+
+* Amostragem opcional
+
+Com =max_nodes=, a amostragem é feita proporcionalmente por split usando
+= numpy.random.default_rng(seed) =. Como cada tamanho por split é arredondado,
+a quantidade final pode não coincidir exatamente com =max_nodes=.
+
+* Arestas
+
+Os índices são remapeados após filtragem/amostragem. Arestas com endpoint
+removido são descartadas; self-loops e duplicatas são removidos. A direção é
+preservada no arquivo: =(i, j)= significa que o artigo =i= cita o artigo =j=.
+
+* Cuidados
+
+A interpretação da direção é importante ao derivar vizinhanças. O módulo
+=graphs.py= transforma as citações em pares de vizinhos e aplica a restrição
+temporal por split.

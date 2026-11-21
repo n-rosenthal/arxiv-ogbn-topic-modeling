@@ -1,0 +1,91 @@
+#+title: Arquitetura do pipeline OGBN
+#+language: pt_BR
+#+options: toc:2 num:nil
+
+* Objetivo
+
+O pipeline organiza experimentos de modelagem de tópicos sobre artigos do
+=ogbn-arxiv=. A arquitetura separa aquisição, construção do corpus, extração de
+atributos, construção de grafos, treinamento e avaliação. Essa separação permite
+comparar modelos sob representações compartilhadas e protocolos comuns.
+
+* Camadas
+
+** 1. Aquisição
+
+=[[download.py]]= obtém os arquivos brutos do OGB e os armazena sob
+=data/ogbn/raw/=. A aquisição não depende do pacote Python =ogb=.
+
+Ver [[file:02-data-acquisition.org][Aquisição dos dados]].
+
+** 2. Corpus processado
+
+=[[corpus.py]]= combina metadados, textos e arestas, filtra documentos, remapeia
+índices e produz os artefatos em =corpus/=.
+
+Ver [[file:03-corpus-construction.org][Construção do corpus]].
+
+** 3. Representações
+
+- [[file:04-data-representation.org][=data.py=]] carrega os artefatos num =Bundle= comum.
+- [[file:05-text-features.org][=text_features.py=]] cria a matriz BoW.
+- [[file:06-document-embeddings.org][=embeddings.py=]] produz embeddings Transformer ou SVD.
+
+** 4. Informação relacional
+
+=[[graphs.py]]= constrói adjacências de citações, kNN, combinações ou controle
+aleatório. Também pré-calcula atributos propagados =X, AX, A²X, ...=.
+
+Ver [[file:07-graphs.org][Construção dos grafos e propagação]].
+
+** 5. Modelagem e experimentos
+
+=[[baselines.py]]= implementa LDA, NMF e BERTopic. Os módulos neurais e os
+executores de experimentos consomem os mesmos dados e convenções de saída.
+
+** 6. Avaliação
+
+=[[evaluate.py]]= fornece métricas comuns aos modelos: qualidade/coerência dos
+tópicos, diversidade, associação com categorias e capacidade preditiva de
+=theta=.
+
+Ver [[file:08-evaluation.org][Métricas e avaliação]].
+
+* Contratos centrais
+
+** Entrada dos modelos
+
+Os modelos compartilham:
+- um vocabulário ordenado, quando a avaliação de palavras é aplicável;
+- uma matriz BoW para modelos baseados em contagens;
+- embeddings densos para modelos que os requerem;
+- índices de split e rótulos;
+- opcionalmente, atributos de grafo propagados.
+
+** Saída dos modelos
+
+A avaliação espera:
+- =top_idx=: matriz inteira de forma =(K, n)=, com índices das palavras mais
+  representativas de cada tópico no vocabulário compartilhado;
+- =theta=: dicionário com chaves =train=, =val= e =test=, cada valor de forma
+  =(N_split, K)=.
+
+* Decisões metodológicas transversais
+
+- Ajustes de vocabulário BoW e de TF-IDF/SVD são feitos no treino e depois
+  aplicados aos demais splits.
+- O protocolo de vizinhança dos grafos é indutivo por split: um nó só pode
+  receber vizinhos do próprio split ou de splits anteriores.
+- As métricas são centralizadas para tornar comparações entre famílias de
+  modelos mais consistentes.
+- O uso de SPECTER exige cautela: o modelo foi treinado com sinal de citações,
+  portanto seus embeddings já podem carregar informação relacional.
+
+* Limites arquiteturais observados
+
+- Alguns caches são identificados apenas por nomes/fingerprint parcial e não
+  validam todos os parâmetros usados na geração.
+- Nem todos os artefatos têm manifesto completo de parâmetros, versão do modelo
+  ou checksums.
+- A comparabilidade depende de manter vocabulário, corpus, protocolo de split e
+  configuração de avaliação consistentes.
