@@ -1,0 +1,125 @@
+#+TITLE: Roteiro de fala --- apresentação PLN
+#+LANGUAGE: pt-br
+
+* Capa
+:PROPERTIES:
+:TEMPO: 0:30
+:END:
+Doutoras, doutores, bom dia. Eu sou o Nícolas e agora vou apresentar meu trabalho sobre a incorporação de dados estruturados, grafos, a modelos neurais para tarefas de Processamento de Linguagem Natural. Especificamente, a inclusão da vizinhança em grafos, por citações e por similaridade semântica, para modelagem de tópicos em um corpus de artigos científicos.
+
+* 2. Roteiro
+:PROPERTIES:
+:TEMPO: 0:15
+:ACUMULADO: 0:45
+:END:
+Este é o roteiro: primeiro a motivação e os modelos, depois o objetivo e as hipóteses, os trabalhos relacionados, o pipeline, as métricas e os resultados, uma parte qualitativa e, por fim, conclusão, limitações e trabalhos futuros.
+
+* 3. Por que organizar a literatura científica?
+:PROPERTIES:
+:TEMPO: 1:00
+:ACUMULADO: 1:45
+:END:
+Já faz algum tempo que os acervos de literatura científica se tornaram astronômicos, e organizá-los manualmente é uma tarefa provavelmente impossível, ou pelo menos pouco prática. O ogbn-arxiv, que é o acervo que eu utilizei como corpus, é um conjunto de cento e sessenta e oito mil artigos em Ciência da Computação. Ele é estruturado como um grafo: cada nó é um artigo, com título e resumo, e as citações entre artigos são as arestas. São mais de um milhão de arestas. Modelos clássicos, como o LDA e o NMF, são capazes de organizar esse e outros acervos em temas, mas têm duas limitações básicas. Primeiro, por serem baseados em contagem de palavras, não abstraem o contexto das frases. Segundo, ignoram as relações entre artigos, feitas por citações e referências.
+
+* 4. Os modelos em uma frase
+:PROPERTIES:
+:TEMPO: 1:30
+:ACUMULADO: 3:15
+:END:
+Então, sobre os modelos. Um modelo de tópicos descreve cada documento como uma mistura de temas, e cada tema como um conjunto de palavras prováveis. A Alocação Latente de Dirichlet, o LDA, é um modelo probabilístico que faz isso a partir de Bag-of-Words, isto é, da contagem de palavras. O NMF toma uma matriz de documentos por palavras e a fatora em duas matrizes não negativas: documento por tópico e tópico por palavra. Quando associamos ao LDA uma rede neural do tipo autoencoder variacional, temos o ProdLDA, a Alocação Latente de Dirichlet pelo Produto de Especialistas, que lê cada documento, infere a mistura de temas e tenta reconstruir as palavras. O Contextualized Topic Model, o CTM, é o ProdLDA que recebe, além das contagens, um embedding produzido por um Transformer, que representa o sentido do documento. Aqui, como em outros lugares, vetores semelhantes representam documentos semanticamente parecidos. E o kNN são os dez artigos mais próximos de cada artigo no espaço dos embeddings.
+
+* 5. Objetivo, pergunta de pesquisa e hipóteses
+:PROPERTIES:
+:TEMPO: 1:00
+:ACUMULADO: 4:15
+:END:
+Nosso objetivo é, então, medir de forma controlada o que embeddings produzidos por um Transformer e as relações de vizinhança de cada artigo em um grafo podem acrescentar a um modelo neural de tópicos, quando não há vazamento de dados do futuro para os artigos atuais. Queremos saber, primeiro, se o CTM supera o ProdLDA; segundo, se o grafo melhora o CTM para a representação dos documentos, não necessariamente em coerência de tópicos; terceiro, se as citações acrescentam alguma melhoria ao kNN; e quarto, se os ganhos, caso existam, persistem nos artigos mais recentes, que são a fase de teste, e se a queda de desempenho do treino para o teste não é maior que a do CTM.
+
+* 6. Trabalhos relacionados e a lacuna
+:PROPERTIES:
+:TEMPO: 1:30
+:ACUMULADO: 5:45
+:END:
+LDA e NMF são modelos clássicos. Com o ProdLDA, trocamos a contagem de palavras pura por uma rede neural profunda. O CTM acrescenta o embedding de um Transformer, nesse caso o MiniLM. Para grafos, o RTM coloca as citações dentro do modelo LDA, e a propagação linear estilo SGC e SIGN é a base do que fiz: uma propagação fixa, feita antes do treino, e não uma GNN treinada de ponta a ponta. A propagação estilo SGC é a média dos embeddings dos vizinhos, calculada uma vez antes do treino. A lacuna é que faltava uma comparação controlada entre tipos de aresta, similaridade semântica contra citação, com vizinhos aleatórios como controle e protocolo temporal, em que um artigo só usa vizinhos que não sejam posteriores a ele.
+
+* 7. Dados
+:PROPERTIES:
+:TEMPO: 0:30
+:ACUMULADO: 6:15
+:END:
+O texto de cada artigo é título mais resumo. São cento e sessenta e oito mil artigos e um milhão e cento e sessenta mil arestas de citação. A divisão considera o treino até 2017, a validação em 2018 e o teste de 2019 em diante. As quarenta categorias do arXiv são rótulos fracos e entram só na avaliação.
+
+* 8. Pipeline: protocolo temporal
+:PROPERTIES:
+:TEMPO: 0:45
+:ACUMULADO: 7:00
+:END:
+Os artigos foram extraídos do acervo; dos textos saem as contagens de palavras e o embedding MiniLM; do embedding saem os vizinhos; e o codificador do modelo recebe as contagens, o embedding do artigo e a média dos embeddings dos vizinhos. Um artigo só enxerga vizinhos que não sejam posteriores a ele, então o teste nunca usa informação do futuro. Os vizinhos vêm do kNN, com k igual a dez, das citações ou de ambos. Como controle, sorteamos vizinhos aleatórios com o mesmo grau.
+
+* 9. Métricas e análise estatística
+:PROPERTIES:
+:TEMPO: 1:15
+:ACUMULADO: 8:15
+:END:
+A coerência entre tópicos, medida por NPMI, compara quantas vezes duas palavras aparecem juntas com quantas vezes apareceriam se fossem independentes. A diversidade é a fração de palavras distintas entre as palavras principais de todos os tópicos. Essas duas não usam rótulos. O NMI mede o quanto os tópicos concordam com as categorias do arXiv; a acurácia mede o quanto a distribuição de tópicos de cada artigo permite prever sua categoria, com uma regressão logística treinada no treino e avaliada no teste. Isso mede concordância com rótulos fracos, não qualidade. Cada modelo roda com cinco sementes; comparo as diferenças pareadas por semente com intervalo de confiança de noventa e cinco por cento e corrijo as múltiplas comparações por Holm, que é uma correção para o fato de eu fazer muitos testes ao mesmo tempo. Para o lado qualitativo, uso a estabilidade dos tópicos, medida pelo Jaccard, a fração de palavras que dois tópicos compartilham, e um teste de intrusão de palavras.
+
+* 10. Resultado principal ($K=50$, texto completo, 5 sementes)
+:PROPERTIES:
+:TEMPO: 1:00
+:ACUMULADO: 9:15
+:END:
+Esta é a tabela com K igual a cinquenta, texto completo e cinco sementes. Os modelos neurais ficam bem acima de LDA e NMF em NMI e acurácia: de cerca de cinquenta e cinco para quase setenta por cento. Entre os neurais, as diferenças são pequenas: kNN e ambos dão cerca de sete décimos de ponto de acurácia sobre o CTM. E o NPMI não muda com nenhum grafo.
+
+* 11. O grafo ajuda a acurácia, e só com informação real
+:PROPERTIES:
+:TEMPO: 1:15
+:ACUMULADO: 10:30
+:END:
+Este é o resultado principal: a diferença pareada em acurácia contra o CTM, com intervalo de confiança, para os modelos neurais enriquecidos com embeddings e vizinhança de grafo. Vizinhos aleatórios ficam em zero, então o ganho real vem da informação dos vizinhos e não de ter mais dimensões na entrada. A citação sozinha é parecida com o kNN, e portanto a terceira hipótese não se confirma. Com só o título, o padrão é semelhante. O ganho do kNN e do ambos resiste à correção de Holm, e o sinal se mantém ao variar K e k.
+
+* 12. Só o embedding, com o grafo, é o melhor
+:PROPERTIES:
+:TEMPO: 0:45
+:ACUMULADO: 11:15
+:END:
+Retirando as contagens de Bag-of-Words da entrada e deixando apenas o embedding mais o grafo, temos o melhor resultado, com acurácia de 0,705 contra 0,686 do CTM, mas a diversidade de tópicos cai. Vizinhos no grafo tendem a ser da mesma categoria do arXiv, então o modelo se aproxima mais dessas categorias sem, necessariamente, produzir tópicos melhores.
+
+* 13. Exemplos de tópicos (CTM × CTM + ambos, semente 0)
+:PROPERTIES:
+:TEMPO: 0:45
+:ACUMULADO: 12:00
+:END:
+Este slide é uma comparação qualitativa entre os tópicos encontrados pelo modelo neural sozinho e pelo modelo neural mais grafo, para os temas de tradução automática, interferência de canal em Teoria da Informação, comunidades em redes e sistemas de controle. Os três primeiros são estáveis, com Jaccard de 0,82. O último é um caso em que o grafo parece ter limpado um tópico misto, mas é de uma única semente, escolhido por ser o maior ganho, e não o trato como efeito do grafo.
+
+* 14. Conclusão
+:PROPERTIES:
+:TEMPO: 0:45
+:ACUMULADO: 12:45
+:END:
+Resumindo. Embeddings e vizinhos reais dão ganhos pequenos e consistentes de acurácia, e não de coerência. Os ganhos persistem no teste sem queda maior que a do CTM. Citações não acrescentam ao kNN e vizinhos aleatórios não ajudam. A melhor configuração é só embedding mais grafo, com perda de diversidade.
+
+* 15. Limitações e trabalhos futuros
+:PROPERTIES:
+:TEMPO: 0:45
+:ACUMULADO: 13:30
+:END:
+As limitações: rótulos fracos, um só corpus e um só Transformer, três a cinco sementes, hiperparâmetros fixos, um único avaliador na intrusão e propagação fixa, não uma GNN treinada. Como trabalhos futuros: uma GNN de ponta a ponta, embeddings científicos como o SPECTER, avaliação humana com mais avaliadores e outros corpora.
+
+* 16. Uso de IA generativa e código
+:PROPERTIES:
+:TEMPO: 0:15
+:ACUMULADO: 13:45
+:END:
+Declaro o uso do Claude, da Anthropic, para código, revisão e rascunhos; tudo foi executado e validado por mim, e o teste de intrusão foi respondido só por mim. Código e resultados estão no repositório indicado. Obrigado, e fico à disposição para perguntas.
+
+* Apêndice: teste de intrusão de palavras
+Em cada item, seis palavras: cinco são do mesmo tópico e uma foi sorteada de outro. Respondi qual era a intrusa sem saber de qual modelo vinha o item. Acerto: 88% no CTM e 80% no CTM com ambos, sem diferença detectável (Fisher, p igual a 0,70), com um só avaliador.
+
+* Perguntas prováveis e respostas curtas
+- *Por que MiniLM e não SPECTER?* Custo e CPU: o MiniLM roda em CPU em minutos. SPECTER já incorpora sinal de citação, o que poderia confundir o efeito do grafo; fica como trabalho futuro.
+- *Isso é uma GNN?* Não de ponta a ponta. É propagação linear fixa de um salto, estilo SGC/SIGN, calculada antes do treino. Está dito no artigo e nos slides.
+- *Como evitou vazamento do futuro?* Cada artigo só tem vizinhos em divisões anteriores ou iguais à sua; o vocabulário e o treino usam só a divisão de treino; o teste é avaliado uma vez por execução.
+- *Por que NMI e acurácia se são rótulos fracos?* Medem concordância com as categorias, não qualidade. Por isso há NPMI, diversidade, estabilidade e o teste de intrusão, e por isso o resultado de só embedding + grafo vem com ressalva.
+- *Por que só 5 sementes?* Custo computacional em CPU. Os IC95% usam t com 4 g.l. e Holm; os extras de K e k usam 3 sementes e têm intervalos largos.
+- *O ganho é relevante?* É pequeno (cerca de 0,7 pp de acurácia), consistente e resiste a Holm; não é ganho de coerência. A conclusão é deliberadamente modesta.
+- *Por que a intrusão só com um avaliador?* Limitação declarada; com 25 itens por modelo o teste tem pouca potência (Fisher, p = 0,70). Futuro: mais avaliadores.
