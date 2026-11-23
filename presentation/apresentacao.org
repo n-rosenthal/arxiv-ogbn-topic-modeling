@@ -97,17 +97,16 @@ Comparar, em um protocolo sem vazamento do futuro, modelos de tópicos com e sem
 :PROPERTIES:
 :TEMPO: 1:30
 :END:
-#+BEAMER: \note{LDA e NMF são modelos clássicos. Com o ProdLDA, trocamos a contagem de palavras pura por uma rede neural profunda. O CTM acrescenta o embedding de um Transformer, nesse caso o MiniLM. Para grafos, o RTM coloca as citações dentro do modelo LDA, e a propagação linear estilo SGC e SIGN é a base do que fiz: uma propagação fixa, feita antes do treino, e não uma GNN treinada de ponta a ponta. A propagação estilo SGC é a média dos embeddings dos vizinhos, calculada uma vez antes do treino. A lacuna é que faltava uma comparação controlada entre tipos de aresta, similaridade semântica contra citação, com vizinhos aleatórios como controle e protocolo temporal, em que um artigo só usa vizinhos que não sejam posteriores a ele.}
-#+ATTR_LATEX: :booktabs t :font \footnotesize :align lp{7.6cm}
-| Linha                      | Trabalhos                                                                               |
-|----------------------------+-----------------------------------------------------------------------------------------|
-| Tópicos clássicos          | LDA (Blei et al., 2003); NMF (Lee e Seung, 1999)                                        |
-| Tópicos neurais            | ProdLDA (Srivastava e Sutton, 2017); CTM (Bianchi et al., 2021)                         |
-| Embeddings de Transformers | Sentence-BERT (Reimers e Gurevych, 2019); MiniLM (Wang et al., 2020)                    |
-| Grafos e tópicos           | RTM (Chang e Blei, 2009); propagação SGC (Wu et al., 2019) e SIGN (Frasca et al., 2020) |
-- Lacuna: faltam comparações controladas kNN × citação, com protocolo temporal e controles
+#+ATTR_LATEX: :booktabs t :font \footnotesize :align lp{9.4cm}
+| Linha                      | Trabalhos                                                           |
+|----------------------------+---------------------------------------------------------------------|
+| Tópicos clássicos          | LDA (Blei et al., 2003); NMF (Lee e Seung, 1999)                    |
+| Tópicos e ciência          | História de ideias (Hall, Jurafsky e Manning, 2008)                 |
+| Tópicos neurais            | ProdLDA (Srivastava e Sutton, 2017); CTM (Bianchi et al., 2021)     |
+| Embeddings de Transformers | Sentence-BERT (Reimers e Gurevych, 2019); MiniLM (Wang et al., 2020) |
+| Grafos e tópicos           | RTM (Chang e Blei, 2009); SGC (Wu et al., 2019); SIGN (Frasca et al., 2020) |
+- Lacuna: faltam comparações controladas kNN \(\times\) citação, com protocolo temporal
 - Aqui: vizinhança sem vazamento, controle aleatório, 5 sementes e Holm
-
 
 * Pipeline do trabalho
 ** Dados
