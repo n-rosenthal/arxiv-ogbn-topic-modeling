@@ -115,11 +115,3 @@ Declaro o uso do Claude, da Anthropic, para código, revisão e rascunhos; tudo 
 * Apêndice: teste de intrusão de palavras
 Em cada item, seis palavras: cinco são do mesmo tópico e uma foi sorteada de outro. Respondi qual era a intrusa sem saber de qual modelo vinha o item. Acerto: 88% no CTM e 80% no CTM com ambos, sem diferença detectável (Fisher, p igual a 0,70), com um só avaliador.
 
-* Perguntas prováveis e respostas curtas
-- *Por que MiniLM e não SPECTER?* Custo e CPU: o MiniLM roda em CPU em minutos. SPECTER já incorpora sinal de citação, o que poderia confundir o efeito do grafo; fica como trabalho futuro.
-- *Isso é uma GNN?* Não de ponta a ponta. É propagação linear fixa de um salto, estilo SGC/SIGN, calculada antes do treino. Está dito no artigo e nos slides.
-- *Como evitou vazamento do futuro?* Cada artigo só tem vizinhos em divisões anteriores ou iguais à sua; o vocabulário e o treino usam só a divisão de treino; o teste é avaliado uma vez por execução.
-- *Por que NMI e acurácia se são rótulos fracos?* Medem concordância com as categorias, não qualidade. Por isso há NPMI, diversidade, estabilidade e o teste de intrusão, e por isso o resultado de só embedding + grafo vem com ressalva.
-- *Por que só 5 sementes?* Custo computacional em CPU. Os IC95% usam t com 4 g.l. e Holm; os extras de K e k usam 3 sementes e têm intervalos largos.
-- *O ganho é relevante?* É pequeno (cerca de 0,7 pp de acurácia), consistente e resiste a Holm; não é ganho de coerência. A conclusão é deliberadamente modesta.
-- *Por que a intrusão só com um avaliador?* Limitação declarada; com 25 itens por modelo o teste tem pouca potência (Fisher, p = 0,70). Futuro: mais avaliadores.
