@@ -1,0 +1,340 @@
+#+TITLE: Embeddings de Transformers e vizinhança em grafo na modelagem neural de tópicos
+#+BEAMER_HEADER: \subtitle{Um estudo controlado no \texttt{ogbn-arxiv}\newline Processamento de Linguagem Natural}
+
+#+AUTHOR: Nícolas Rosenthal Dal Corso
+#+DATE: novembro, 2026
+#+LANGUAGE: pt-br
+#+LATEX_CLASS: beamer
+#+LATEX_CLASS_OPTIONS: [11pt,aspectratio=169]
+#+BEAMER_THEME: metropolis
+#+OPTIONS: H:2 toc:nil num:nil ^:{} todo:nil tasks:nil
+#+LATEX_HEADER: \usepackage[utf8]{inputenc}
+#+LATEX_HEADER: \usepackage[T1]{fontenc}
+#+LATEX_HEADER: \usepackage{booktabs,amsmath,amssymb,graphicx,xcolor}
+#+LATEX_HEADER: \institute{Instituto de Informática --- Universidade Federal do Rio Grande do Sul \\ \texttt{nrcorso@inf.ufrgs.br}}
+#+LATEX_HEADER: \AtBeginDocument{\metroset{progressbar=frametitle,block=fill,sectionpage=none,numbering=fraction}}
+#+LATEX_HEADER: \definecolor{azul}{HTML}{1F3A5F}
+#+LATEX_HEADER: \definecolor{laranja}{HTML}{D9622B}
+#+LATEX_HEADER: \definecolor{cinza}{HTML}{F2F4F7}
+#+LATEX_HEADER: \setbeamercolor{frametitle}{bg=azul,fg=white}
+#+LATEX_HEADER: \setbeamercolor{progress bar}{fg=laranja,bg=azul!30}
+#+LATEX_HEADER: \setbeamercolor{title separator}{fg=laranja}
+#+LATEX_HEADER: \setbeamercolor{alerted text}{fg=laranja}
+#+LATEX_HEADER: \setbeamerfont{alerted text}{series=\bfseries}
+#+LATEX_HEADER: \setbeamercolor{block title}{bg=azul,fg=white}
+#+LATEX_HEADER: \setbeamercolor{block body}{bg=cinza,fg=black}
+#+LATEX_HEADER: \setbeamercolor{itemize item}{fg=laranja}
+#+LATEX_HEADER: \setbeamercolor{enumerate item}{fg=laranja}
+#+LATEX_HEADER: \setbeamertemplate{navigation symbols}{}
+#+LATEX_HEADER: \setbeamertemplate{frame footer}{Nícolas Rosenthal Dal Corso | \textit{Embeddings} e grafos na modelagem de tópicos}
+#+LATEX_HEADER: \renewcommand{\arraystretch}{1.18}
+#+LATEX_HEADER: \setlength{\leftmargini}{1.2em}
+#+LATEX_HEADER: \newcommand{\destaque}[1]{\par\medskip\begin{beamercolorbox}[wd=\linewidth,rounded=true,sep=4pt]{block body}\small\alert{\(\blacktriangleright\)} #1\end{beamercolorbox}}
+
+* Agenda
+** Roteiro
+:PROPERTIES:
+:TEMPO: 0:15
+:END:
+#+BEAMER: \note{Este é o roteiro: primeiro a motivação e os modelos, depois o objetivo e as hipóteses, os trabalhos relacionados, o pipeline, as métricas e os resultados, uma parte qualitativa e, por fim, conclusão, limitações e trabalhos futuros.}
+1. Motivação, modelos e objetivo
+2. Trabalhos relacionados
+3. Pipeline: dados e protocolo temporal
+4. Métricas e resultados
+5. Aspectos qualitativos
+6. Conclusão, limitações e trabalhos futuros
+
+
+* Motivação e objetivo
+** Por que organizar a literatura científica?
+:PROPERTIES:
+:TEMPO: 1:00
+:END:
+#+BEAMER: \note{Já faz algum tempo que os acervos de literatura científica se tornaram astronômicos, e organizá-los manualmente é uma tarefa provavelmente impossível, ou pelo menos pouco prática. O ogbn-arxiv, que é o acervo que eu utilizei como corpus, é um conjunto de cento e sessenta e oito mil artigos em Ciência da Computação. Ele é estruturado como um grafo: cada nó é um artigo, com título e resumo, e as citações entre artigos são as arestas. São mais de um milhão de arestas. Modelos clássicos, como o LDA e o NMF, são capazes de organizar esse e outros acervos em temas, mas têm duas limitações básicas. Primeiro, por serem baseados em contagem de palavras, não apreendem o contexo dos documentos; e segundo, ignoram as relações entre artigos, feitas por citações e referências.}
+- O ogbn-arxiv reúne 168.663 artigos de ciência da computação com título, resumo e citações
+- Modelos de tópicos resumem esse acervo em temas (mapa temático, busca, tendências)
+- O LDA e o NMF usam só contagens de palavras e ignoram contexto e relações entre artigos
+
+
+** Os modelos em uma frase
+:PROPERTIES:
+:TEMPO: 1:30
+:END:
+#+BEAMER: \note{Então, sobre os modelos. Um modelo de tópicos descreve cada documento como uma mistura de temas, e cada tema como um conjunto de palavras prováveis. A Alocação Latente de Dirichlet, o LDA, é um modelo probabilístico que faz isso a partir de Bag-of-Words, isto é, da contagem de palavras. O NMF toma uma matriz de documentos por palavras e a fatora em duas matrizes não negativas: documento por tópico e tópico por palavra. Quando associamos ao LDA uma rede neural do tipo autoencoder variacional, temos o ProdLDA, a Alocação Latente de Dirichlet pelo Produto de Especialistas, que lê cada documento, infere a mistura de temas e tenta reconstruir as palavras. O Contextualized Topic Model, o CTM, é o ProdLDA que recebe, além das contagens, um embedding produzido por um Transformer, que representa o sentido do documento. Aqui, como em outros lugares, vetores semelhantes representam documentos semanticamente parecidos. E o kNN são os dez artigos mais próximos de cada artigo no espaço dos embeddings.}
+#+ATTR_LATEX: :booktabs t :font \footnotesize :align lp{9cm}
+| Modelo  | Como funciona                                                                              |
+|---------+--------------------------------------------------------------------------------------------|
+| LDA     | Cada documento é uma mistura de temas; cada tema, uma distribuição de palavras (contagens) |
+| NMF     | Fatora documento × palavra em documento × tema e tema × palavra, sem valores negativos     |
+| ProdLDA | Como o LDA, com um autoencoder variacional (rede neural)                                   |
+| CTM     | O ProdLDA com o embedding de um Transformer na entrada                                     |
+- Embedding: vetor de 384 números com o sentido do texto; textos parecidos ficam próximos
+- kNN: os 10 artigos mais próximos de cada artigo nesse espaço
+
+
+** Objetivo, pergunta de pesquisa e hipóteses
+:PROPERTIES:
+:TEMPO: 1:00
+:END:
+#+BEAMER: \note{Nosso objetivo é, então, medir de forma controlada o que embeddings produzidos por um Transformer e as relações de vizinhança de cada artigo em um grafo podem acrescentar a um modelo neural de tópicos, quando não há vazamento de dados do futuro para os artigos atuais. Queremos saber, primeiro, se o CTM supera o ProdLDA; segundo, se o grafo melhora o CTM para a representação dos documentos, não necessariamente em coerência de tópicos; terceiro, se as citações acrescentam alguma melhoria ao kNN; e quarto, se os ganhos, caso existam, persistem nos artigos mais recentes, que são a fase de teste, e se a queda de desempenho do treino para o teste não é maior que a do CTM.}
+*** Objetivo e pergunta                                       :B_block:
+:PROPERTIES:
+:BEAMER_env: block
+:END:
+Comparar, em um protocolo sem vazamento do futuro, modelos de tópicos com e sem embeddings de Transformers e vizinhança em grafo. Embeddings e vizinhos melhoram um modelo neural de tópicos?
+*** Hipóteses                                                  :B_ignoreheading:
+:PROPERTIES:
+:BEAMER_env: ignoreheading
+:END:
+- H1: o CTM supera o ProdLDA
+- H2: o grafo melhora o CTM
+- H3: citações acrescentam algo ao kNN
+- H4: os ganhos persistem nos artigos mais recentes (teste), sem queda maior que a do CTM
+
+
+* Trabalhos relacionados
+** Trabalhos relacionados e a lacuna
+:PROPERTIES:
+:TEMPO: 1:30
+:END:
+#+BEAMER: \note{LDA e NMF são modelos clássicos. Com o ProdLDA, trocamos a contagem de palavras pura por uma rede neural profunda. O CTM acrescenta o embedding de um Transformer, nesse caso o MiniLM. Para grafos, o RTM coloca as citações dentro do modelo LDA, e a propagação linear estilo SGC e SIGN é a base do que fiz: uma propagação fixa, feita antes do treino, e não uma GNN treinada de ponta a ponta. A propagação estilo SGC é a média dos embeddings dos vizinhos, calculada uma vez antes do treino. A lacuna é que faltava uma comparação controlada entre tipos de aresta, similaridade semântica contra citação, com vizinhos aleatórios como controle e protocolo temporal, em que um artigo só usa vizinhos que não sejam posteriores a ele.}
+#+ATTR_LATEX: :booktabs t :font \footnotesize :align lp{7.6cm}
+| Linha                      | Trabalhos                                                                               |
+|----------------------------+-----------------------------------------------------------------------------------------|
+| Tópicos clássicos          | LDA (Blei et al., 2003); NMF (Lee e Seung, 1999)                                        |
+| Tópicos neurais            | ProdLDA (Srivastava e Sutton, 2017); CTM (Bianchi et al., 2021)                         |
+| Embeddings de Transformers | Sentence-BERT (Reimers e Gurevych, 2019); MiniLM (Wang et al., 2020)                    |
+| Grafos e tópicos           | RTM (Chang e Blei, 2009); propagação SGC (Wu et al., 2019) e SIGN (Frasca et al., 2020) |
+- Lacuna: faltam comparações controladas kNN × citação, com protocolo temporal e controles
+- Aqui: vizinhança sem vazamento, controle aleatório, 5 sementes e Holm
+
+
+* Pipeline do trabalho
+** Dados
+:PROPERTIES:
+:TEMPO: 0:30
+:END:
+#+BEAMER: \note{O texto de cada artigo é título mais resumo. São cento e sessenta e oito mil artigos e um milhão e cento e sessenta mil arestas de citação. A divisão considera o treino até 2017, a validação em 2018 e o teste de 2019 em diante. As quarenta categorias do arXiv são rótulos fracos e entram só na avaliação.}
+*** Conjunto                                          :B_column:BMCOL:
+:PROPERTIES:
+:BEAMER_col: 0.5
+:END:
+- Texto: título + resumo (168.663 artigos, 1,16 milhão de arestas de citação)
+- Rótulos fracos: 40 categorias do arXiv
+- Divisão temporal oficial: treino até 2017, validação 2018, teste desde 2019
+*** Estatísticas                                      :B_column:BMCOL:
+:PROPERTIES:
+:BEAMER_col: 0.5
+:END:
+#+ATTR_LATEX: :booktabs t
+| Divisão   | Artigos |
+|-----------+---------|
+| Treino    |  90.464 |
+| Validação |  29.715 |
+| Teste     |  48.484 |
+
+
+** Pipeline: protocolo temporal
+:PROPERTIES:
+:TEMPO: 0:45
+:END:
+#+BEAMER: \note{Os artigos foram extraídos do acervo; dos textos saem as contagens de palavras e o embedding MiniLM; do embedding saem os vizinhos; e o codificador do modelo recebe as contagens, o embedding do artigo e a média dos embeddings dos vizinhos. Um artigo só enxerga vizinhos que não sejam posteriores a ele, então o teste nunca usa informação do futuro. Os vizinhos vêm do kNN, com k igual a dez, das citações ou de ambos. Como controle, sorteamos vizinhos aleatórios com o mesmo grau.}
+#+ATTR_LATEX: :width 0.92\linewidth
+[[file:figs/pipeline.pdf]]
+- Um artigo só enxerga vizinhos \emph{não posteriores} a ele: sem vazamento do futuro
+- Arestas: kNN dos embeddings (\(k=10\)), citações, ambos ou aleatórias (controle)
+- O codificador recebe contagens, embedding e média dos embeddings dos vizinhos
+
+
+* Métricas e resultados
+** Métricas e análise estatística
+:PROPERTIES:
+:TEMPO: 1:15
+:END:
+#+BEAMER: \note{A coerência entre tópicos, medida por NPMI, compara quantas vezes duas palavras aparecem juntas com quantas vezes apareceriam se fossem independentes. A diversidade é a fração de palavras distintas entre as palavras principais de todos os tópicos. Essas duas não usam rótulos. O NMI mede o quanto os tópicos concordam com as categorias do arXiv; a acurácia mede o quanto a distribuição de tópicos de cada artigo permite prever sua categoria, com uma regressão logística treinada no treino e avaliada no teste. Isso mede concordância com rótulos fracos, não qualidade. Cada modelo roda com cinco sementes; comparo as diferenças pareadas por semente com intervalo de confiança de noventa e cinco por cento e corrijo as múltiplas comparações por Holm, que é uma correção para o fato de eu fazer muitos testes ao mesmo tempo. Para o lado qualitativo, uso a estabilidade dos tópicos, medida pelo Jaccard, a fração de palavras que dois tópicos compartilham, e um teste de intrusão de palavras.}
+- Coerência (NPMI) e diversidade: não usam rótulos
+- NMI e acurácia de \(\log\theta\) contra as categorias: concordância com rótulos fracos
+- Estatística: 5 sementes, diferença pareada com IC95% e correção de Holm
+- Qualitativo: estabilidade dos tópicos (Jaccard) e teste de intrusão de palavras
+
+
+** Resultado principal ($K=50$, texto completo, 5 sementes)
+:PROPERTIES:
+:TEMPO: 1:00
+:END:
+#+BEAMER: \note{Esta é a tabela com K igual a cinquenta, texto completo e cinco sementes. Os modelos neurais ficam bem acima de LDA e NMF em NMI e acurácia: de cerca de cinquenta e cinco para quase setenta por cento. Entre os neurais, as diferenças são pequenas: kNN e ambos dão cerca de sete décimos de ponto de acurácia sobre o CTM. E o NPMI não muda com nenhum grafo.}
+#+ATTR_LATEX: :booktabs t :font \small
+| Modelo              | NPMI  | Diversid. | NMI   | Acurácia |
+|---------------------+-------+-----------+-------+----------|
+| LDA                 | 0,156 | 0,828     | 0,315 | 0,568    |
+| NMF                 | 0,219 | 0,855     | 0,244 | 0,544    |
+| ProdLDA             | 0,223 | 0,854     | 0,387 | 0,679    |
+| CTM                 | *0,226* | 0,869     | 0,397 | 0,686    |
+| CTM + kNN           | *0,226* | 0,862     | 0,400 | *0,693*    |
+| CTM + ambos         | 0,225 | *0,871*     | *0,401* | *0,693*    |
+- Neurais \(\gg\) LDA/NMF em NMI e acurácia; entre os neurais, as diferenças são pequenas
+@@latex:\destaque{Os grafos dão cerca de \(+0{,}7\) pp de acurácia sobre o CTM; o NPMI não muda.}@@
+
+
+** O grafo ajuda a acurácia, e só com informação real
+:PROPERTIES:
+:TEMPO: 1:15
+:END:
+#+BEAMER: \note{Este é o resultado principal: a diferença pareada em acurácia contra o CTM, com intervalo de confiança, para os modelos neurais enriquecidos com embeddings e vizinhança de grafo. Vizinhos aleatórios ficam em zero, então o ganho real vem da informação dos vizinhos e não de ter mais dimensões na entrada. A citação sozinha é parecida com o kNN, e portanto a terceira hipótese não se confirma. Com só o título, o padrão é semelhante. O ganho do kNN e do ambos resiste à correção de Holm, e o sinal se mantém ao variar K e k.}
+#+ATTR_LATEX: :width 0.78\linewidth
+[[file:figs/ablacao.pdf]]
+- Aleatórios não ajudam; citação sozinha \(\approx\) kNN (H3 não confirmada)
+- Robusto a \(K\) (20, 50, 100) e \(k\) (5, 10, 20): \(+0{,}6\) a \(+0{,}8\) pp de acurácia do kNN
+@@latex:\destaque{Vizinhos reais ajudam; vizinhos aleatórios, não.}@@
+
+
+** Só o embedding, com o grafo, é o melhor
+:PROPERTIES:
+:TEMPO: 0:45
+:END:
+#+BEAMER: \note{Retirando as contagens de Bag-of-Words da entrada e deixando apenas o embedding mais o grafo, temos o melhor resultado, com acurácia de 0,705 contra 0,686 do CTM, mas a diversidade de tópicos cai. Vizinhos no grafo tendem a ser da mesma categoria do arXiv, então o modelo se aproxima mais dessas categorias sem, necessariamente, produzir tópicos melhores.}
+- Sem contagens na entrada: NMI 0,421 e acurácia 0,705 (CTM: 0,397 e 0,686)
+- O grafo vale \(+1{,}9\) pp aqui, contra \(+0{,}7\) pp com as contagens
+- Mas a diversidade cai (0,836 contra 0,871 do CTM + ambos) e o NPMI não melhora (0,221)
+- Vizinhos têm a mesma categoria: aproximar das categorias não é melhorar os tópicos
+@@latex:\destaque{Melhor NMI e acurácia, mas com menos diversidade: cuidado com rótulos fracos.}@@
+
+
+* Aspectos qualitativos
+** Exemplos de tópicos (CTM × CTM + ambos, semente 0)
+:PROPERTIES:
+:TEMPO: 0:45
+:END:
+#+BEAMER: \note{Este slide é uma comparação qualitativa entre os tópicos encontrados pelo modelo neural sozinho e pelo modelo neural mais grafo, para os temas de tradução automática, interferência de canal em Teoria da Informação, comunidades em redes e sistemas de controle. Os três primeiros são estáveis, com Jaccard de 0,82. O último é um caso em que o grafo parece ter limpado um tópico misto, mas é de uma única semente, escolhido por ser o maior ganho, e não o trato como efeito do grafo.}
+#+ATTR_LATEX: :booktabs t :font \scriptsize :align clp{4.6cm}p{4.6cm}
+| J    | Categoria         | CTM                                                                 | CTM + ambos                                                               |
+|------+-------------------+---------------------------------------------------------------------+---------------------------------------------------------------------------|
+| 0,82 | cs.CL (85% / 86%) | translation nmt word language sentence english bleu                 | word translation nmt words english embeddings sentence                    |
+| 0,82 | cs.IT (98% / 98%) | interference dof channel region capacity csit gaussian              | interference channel dof relay capacity region freedom                    |
+| 0,82 | cs.SI (49% / 41%) | communities community centrality networks social nodes network      | communities community centrality networks graph nodes social              |
+| 0,33 | cs.SY (21% / 39%) | tile consensus controllability systems assembly control controllers | control consensus disturbances controller bus controllability controllers |
+- Última linha: NPMI 0,01 \(\rightarrow\) 0,23, mas é uma semente: não é efeito atribuível ao grafo
+
+
+* Conclusão
+** Conclusão
+:PROPERTIES:
+:TEMPO: 0:45
+:END:
+#+BEAMER: \note{Resumindo. Embeddings e vizinhos reais dão ganhos pequenos e consistentes de acurácia, e não de coerência. Os ganhos persistem no teste sem queda maior que a do CTM. Citações não acrescentam ao kNN e vizinhos aleatórios não ajudam. A melhor configuração é só embedding mais grafo, com perda de diversidade.}
+- Embeddings e vizinhos reais dão ganhos pequenos e consistentes de acurácia, não de coerência
+- Os ganhos persistem no teste, sem queda maior que a do CTM
+- Citações não acrescentam ao kNN; vizinhos aleatórios não ajudam
+- Melhor configuração: só embedding + grafo, com perda de diversidade
+- Diferencial: comparação controlada (sem vazamento, controle aleatório, Holm)
+
+
+** Limitações e trabalhos futuros
+:PROPERTIES:
+:TEMPO: 0:45
+:END:
+#+BEAMER: \note{As limitações: rótulos fracos, um só corpus e um só Transformer, três a cinco sementes, hiperparâmetros fixos, um único avaliador na intrusão e propagação fixa, não uma GNN treinada. Como trabalhos futuros: uma GNN de ponta a ponta, embeddings científicos como o SPECTER, avaliação humana com mais avaliadores e outros corpora.}
+*** Limitações                                        :B_column:BMCOL:
+:PROPERTIES:
+:BEAMER_col: 0.5
+:END:
+- Rótulos fracos (categorias do arXiv)
+- Um corpus, um Transformer
+- 3 a 5 sementes; hiperparâmetros fixos
+- Um avaliador na intrusão
+- Propagação fixa, não GNN treinada
+*** Trabalhos futuros                                 :B_column:BMCOL:
+:PROPERTIES:
+:BEAMER_col: 0.5
+:END:
+- GNN de ponta a ponta
+- Embeddings científicos (SPECTER)
+- Avaliação humana com mais avaliadores
+- Outros corpora
+
+
+** Uso de IA generativa e código
+:PROPERTIES:
+:TEMPO: 0:15
+:END:
+#+BEAMER: \note{Declaro o uso do Claude, da Anthropic, para código, revisão e rascunhos; tudo foi executado e validado por mim, e o teste de intrusão foi respondido só por mim. Código e resultados estão no repositório indicado. Obrigado, e fico à disposição para perguntas.}
+- Claude (Anthropic): código, revisão e rascunhos; tudo executado e validado pelo autor
+- Código e resultados: ~github.com/n-rosenthal/arxiv-ogbn-topic-modeling~
+
+
+#+BEAMER: \appendix
+* Apêndice (reserva para perguntas)
+** Estabilidade dos tópicos (Jaccard)
+:PROPERTIES:
+:END:
+#+BEAMER: \note{Reserva. Jaccard médio das 10 palavras principais entre sementes: CTM 0,28; CTM com grafo 0,29 a 0,30; NMF 0,68. Entre CTM e CTM com grafo na mesma semente, 0,30.}
+- Jaccard médio dos tópicos entre sementes: CTM 0,28; CTM + grafo 0,29 a 0,30; NMF 0,68
+- CTM + grafo vs CTM (mesma semente): 0,30, o mesmo que CTM vs CTM entre sementes (0,28)
+- Intrusão de palavras (1 avaliador, 25 itens por modelo): CTM 88%, CTM + ambos 80% (Fisher, \(p=0{,}70\)): sem diferença detectável
+- Leitura: o grafo não deixa os tópicos mais interpretáveis de forma detectável
+@@latex:\destaque{Um tópico isolado não prova efeito do grafo: a variação entre sementes é do mesmo tamanho.}@@
+
+** Teste de intrusão de palavras: itens e respostas
+:PROPERTIES:
+:END:
+#+BEAMER: \note{Reserva. Em cada item, seis palavras: cinco são do mesmo tópico e uma foi sorteada de outro. Respondi qual era a intrusa sem saber de qual modelo vinha o item. A coluna resposta é a minha resposta. Acerto: CTM 88\%, CTM com ambos 80\%, Fisher p igual a 0,70.}
+#+ATTR_LATEX: :booktabs t :font \scriptsize\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.05} :align rllllllc
+| id | 1             | 2           | 3          | 4              | 5             | 6             | resposta |
+|----+---------------+-------------+------------+----------------+---------------+---------------+----------|
+|  1 | users         | social      | osns       | recommendation | friends       | coq           |        6 |
+|  2 | convolutional | energy      | iot        | wsns           | sensor        | neuromorphic  |        6 |
+|  3 | robot         | word        | planner    | robots         | reinforcement | planning      |        2 |
+|  4 | relay         | face        | clustering | subspaces      | riemannian    | subspace      |        1 |
+|  5 | parity-check  | mathbb      | cyclic     | drawing        | codes         | graphs        |        4 |
+|  6 | channel       | recovery    | sparse     | signal         | rip           | sensing       |        1 |
+|  7 | precoding     | beamforming | heuristic  | optimization   | allocation    | power         |        3 |
+|  8 | generative    | cloud       | gans       | adversarial    | gan           | discriminator |        2 |
+|  9 | agent         | skills      | dialogue   | reinforcement  | learning      | sensing       |        6 |
+| 10 | dof           | dmt         | robot      | caching        | csit          | relay         |        3 |
+
+** Hipóteses com correção de Holm (texto completo)
+:PROPERTIES:
+:END:
+#+BEAMER: \note{Reserva. Diferenças pareadas por semente, 5 sementes. O símbolo marca o que resiste a Holm dentro de cada família.}
+#+ATTR_LATEX: :booktabs t :font \scriptsize
+| Comparação                        | \(\Delta\)NMI [IC95%]                | \(\Delta\)Acurácia [IC95%]           |
+|-----------------------------------+---------------------------------+---------------------------------|
+| CTM \(-\) ProdLDA                 | +0,0101 [\(-\)0,0011; +0,0212]  | +0,0065 [+0,0041; +0,0089]\(^{\dagger}\) |
+| CTM + kNN \(-\) CTM               | +0,0028 [\(-\)0,0054; +0,0111]  | +0,0070 [+0,0037; +0,0103]\(^{\dagger}\) |
+| CTM + citação \(-\) CTM           | +0,0026 [\(-\)0,0070; +0,0123]  | +0,0042 [+0,0012; +0,0072]      |
+| CTM + ambos \(-\) CTM             | +0,0036 [\(-\)0,0053; +0,0125]  | +0,0077 [+0,0046; +0,0107]\(^{\dagger}\) |
+| ambos \(-\) kNN                   | +0,0007 [\(-\)0,0057; +0,0072]  | +0,0007 [\(-\)0,0012; +0,0026]  |
+| kNN \(-\) aleatórios              | +0,0058 [+0,0003; +0,0113]      | +0,0070 [+0,0043; +0,0097]\(^{\dagger}\) |
+| só emb. + grafo \(-\) CTM + ambos | +0,0202 [+0,0129; +0,0275]\(^{\dagger}\) | +0,0119 [+0,0074; +0,0165]\(^{\dagger}\) |
+\(^{\dagger}\): resiste a Holm dentro da família.
+
+** Sensibilidade a $K$ e a $k$
+:PROPERTIES:
+:END:
+#+BEAMER: \note{Reserva. Diferença CTM + kNN menos CTM. K=20 e K=100 e k=5 e k=20 com 3 sementes, daí os intervalos largos. O sinal do ganho de acurácia se mantém; o ganho de NMI cresce com K.}
+#+ATTR_LATEX: :booktabs t :font \scriptsize
+| $K$ | $n$ | \(\Delta\)NMI [IC95%]                   | \(\Delta\)Acurácia [IC95%]          |
+|-----+-----+------------------------------------+--------------------------------|
+|  20 |   3 | \(-\)0,0026 [\(-\)0,0357; +0,0304] | +0,0065 [\(-\)0,0050; +0,0179] |
+|  50 |   5 | +0,0028 [\(-\)0,0054; +0,0111]     | +0,0070 [+0,0037; +0,0103]     |
+| 100 |   3 | +0,0095 [+0,0038; +0,0153]         | +0,0080 [+0,0069; +0,0091]     |
+#+ATTR_LATEX: :booktabs t :font \scriptsize
+| $k$ | $n$ | \(\Delta\)NMI [IC95%]                   | \(\Delta\)Acurácia [IC95%]          |
+|-----+-----+------------------------------------+--------------------------------|
+|   5 |   3 | \(-\)0,0008 [\(-\)0,0352; +0,0335] | +0,0056 [\(-\)0,0006; +0,0118] |
+|  10 |   5 | +0,0028 [\(-\)0,0054; +0,0111]     | +0,0070 [+0,0037; +0,0103]     |
+|  20 |   3 | +0,0054 [\(-\)0,0084; +0,0191]     | +0,0065 [+0,0020; +0,0110]     |
+
+** Só o título (5 sementes)
+:PROPERTIES:
+:END:
+#+BEAMER: \note{Reserva. Com só o título o desempenho cai muito, o efeito do Transformer é maior (CTM menos ProdLDA: NMI +0,030, acurácia +0,026) e os grafos ainda ajudam a acurácia: kNN +0,008, citação +0,010, ambos +0,015. Vizinhos aleatórios não ajudam.}
+#+ATTR_LATEX: :booktabs t :font \small
+| Modelo           | NPMI  | NMI   | Acurácia |
+|------------------+-------+-------+----------|
+| ProdLDA          | 0,089 | 0,207 | 0,514    |
+| CTM              | 0,089 | 0,236 | 0,539    |
+| CTM + kNN        | 0,098 | 0,247 | 0,548    |
+| CTM + citação    | 0,092 | 0,243 | 0,549    |
+| CTM + ambos      | 0,095 | 0,249 | 0,554    |
+| CTM + aleatórios | 0,090 | 0,231 | 0,539    |
