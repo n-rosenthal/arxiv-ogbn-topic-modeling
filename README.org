@@ -36,8 +36,6 @@ Teste, $K=50$, média de 5 sementes (desvios, intervalos e testes estão no arti
 
 * Estrutura do repositório
 
-TODO: ajuste esta árvore aos arquivos reais do repositório.
-
 #+begin_example
 .
 ├── README.org
@@ -55,7 +53,7 @@ Versões usadas nos experimentos: Python 3.14.6, PyTorch 2.15.0, scikit-learn 1.
 
 #+begin_src sh
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r src/requirements.txt
 #+end_src
 
 * Como reproduzir
