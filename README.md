@@ -1,1 +1,0 @@
-# arxiv-ogbn-topic-modeling

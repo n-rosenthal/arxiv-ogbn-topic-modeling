@@ -1,0 +1,107 @@
+#+TITLE: Embeddings de Transformers e vizinhança em grafo na modelagem neural de tópicos
+#+SUBTITLE: Um estudo controlado no ogbn-arxiv
+#+OPTIONS: toc:2 num:nil
+
+Código e resultados do trabalho final da disciplina de Processamento de Linguagem Natural (PLN), Instituto de Informática, UFRGS, 2026/2.
+
+Autor: Nícolas Rosenthal Dal Corso (=nrcorso@inf.ufrgs.br=)
+
+* Resumo
+
+Modelos neurais de tópicos podem receber embeddings de Transformers e a vizinhança em um grafo, mas pouco se sabe sobre a contribuição de cada componente quando a avaliação evita vazamento temporal. Este projeto compara LDA, NMF, ProdLDA e um modelo no estilo CTM em 168.663 artigos do ogbn-arxiv, com a divisão temporal oficial e um protocolo em que cada artigo só enxerga vizinhos que não sejam mais novos que ele.
+
+Os vizinhos vêm da similaridade entre embeddings MiniLM (kNN), das citações ou de ambos. Há controles com vizinhos aleatórios e com um codificador que recebe só embeddings. As métricas são coerência (NPMI), diversidade, NMI e acurácia contra as categorias do arXiv, em cinco sementes, com correção de Holm.
+
+* Principais resultados
+
+Teste, $K=50$, média de 5 sementes (desvios, intervalos e testes estão no artigo):
+
+| Modelo          | NPMI  | Diversid. |   NMI | Acurácia |
+|-----------------+-------+-----------+-------+----------|
+| LDA             | 0,156 |     0,828 | 0,315 |    0,568 |
+| NMF             | 0,219 |     0,855 | 0,244 |    0,544 |
+| ProdLDA         | 0,223 |     0,854 | 0,387 |    0,679 |
+| CTM             | 0,226 |     0,869 | 0,397 |    0,686 |
+| CTM + kNN       | 0,226 |     0,862 | 0,400 |    0,693 |
+| CTM + citação   | 0,224 |     0,862 | 0,400 |    0,690 |
+| CTM + ambos     | 0,225 |     0,871 | 0,401 |    0,693 |
+| CTM + aleat.    | 0,220 |     0,866 | 0,395 |    0,686 |
+| Só emb.         | 0,231 |     0,832 | 0,408 |    0,686 |
+| Só emb. + grafo | 0,221 |     0,836 | 0,421 |    0,705 |
+
+- Os ganhos dos vizinhos são pequenos: +0,4 a +0,8 ponto percentual de acurácia sobre o CTM, sem mudança no NPMI.
+- Vizinhos aleatórios não ajudam, e as citações sozinhas não superam o kNN.
+- A melhor configuração (só embedding + grafo) tem a menor diversidade.
+- Concordância com as categorias do arXiv (rótulos fracos) não é qualidade de tópicos; por isso o projeto inclui um teste humano de intrusão de palavras (1 avaliador: 88% no CTM e 80% no CTM + ambos, Fisher $p=0{,}70$).
+
+* Estrutura do repositório
+
+TODO: ajuste esta árvore aos arquivos reais do repositório.
+
+#+begin_example
+.
+├── README.org
+├── artigo/            # artigo em org-mode (SBC) e refs.bib
+├── apresentacao/      # slides (Org + Beamer)
+├── src/               # código: dados, embeddings, grafo, modelos, métricas
+├── results/           # um JSON por modelo, K e semente
+└── intrusao/          # itens, gabarito e respostas do teste de intrusão
+#+end_example
+
+* Ambiente
+
+Versões usadas nos experimentos: Python 3.14.6, PyTorch 2.15.0, scikit-learn 1.9.1 e sentence-transformers 6.2.0. Hardware: Intel Core i5-11320H (8 núcleos lógicos, 4 /threads/ do PyTorch), 7,5 GiB de memória, sem GPU.
+
+#+begin_src sh
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+#+end_src
+
+* Como reproduzir
+
+TODO: substitua os comandos abaixo pelos reais.
+
+1. Baixar o ogbn-arxiv e o arquivo bruto de títulos e resumos distribuído pelo OGB, e filtrar os artigos (remove 680 dos 169.343 nós, restando 168.663).
+2. Calcular os embeddings uma única vez com =all-MiniLM-L6-v2= (384 dimensões, até 256 /tokens/, norma unitária).
+3. Construir os grafos sem vazamento temporal (kNN com $k=10$, citações, ambos, aleatório).
+4. Treinar cada modelo com as sementes 0 a 4. As execuções são retomáveis e gravam um arquivo por modelo, $K$ e semente.
+5. Agregar os resultados (médias, diferenças pareadas, IC95% e correção de Holm).
+
+#+begin_src sh
+# TODO: comandos reais, por exemplo
+# python -m src.prepare
+# python -m src.embed
+# python -m src.train --model ctm --k-topics 50 --seed 0
+# python -m src.aggregate
+#+end_src
+
+O tempo de treino por execução vai de 2,6 min (NMF) a cerca de 30 min (modelos com contagens, embedding e grafo), e a 16 a 18 min nas variantes sem contagens na entrada, sem contar os embeddings.
+
+* Protocolo, em uma página
+
+- *Divisão temporal oficial do OGB:* treino até 2017 (90.464 artigos), validação 2018 (29.715) e teste de 2019 em diante (48.484).
+- *Vizinhança sem vazamento:* um artigo só enxerga vizinhos cuja divisão não seja posterior à dele (treino $\prec$ validação $\prec$ teste).
+- *Entrada do codificador:* $[\tilde{x};\ e;\ Ae]$, com $\tilde{x}$ a contagem em $\log(1+x)$ normalizada, $e$ o embedding e $Ae$ a média dos embeddings dos vizinhos. A propagação é fixa e calculada antes do treino (estilo SGC/SIGN); não há rede de grafos treinada de ponta a ponta.
+- *Hiperparâmetros fixos:* não foram ajustados. A validação serve só à parada antecipada. O teste é avaliado uma vez por execução.
+- *Métricas:* NPMI (nível de documento, 10 palavras, 45 pares), diversidade, NMI entre o tópico dominante e a categoria, e acurácia e F1-macro de uma regressão logística sobre $\log\hat\theta$.
+
+* Limitações
+
+- As categorias do arXiv são rótulos fracos e não medem a qualidade dos tópicos.
+- Um único conjunto de dados, um único Transformer (MiniLM), três a cinco sementes e hiperparâmetros fixos.
+- Os tópicos são tão instáveis entre sementes quanto entre modelos.
+- O teste de intrusão teve um só avaliador, que é o autor.
+
+* Citação
+#TODO?
+
+#+begin_example
+Dal Corso, N. R. Embeddings de Transformers e vizinhança em grafo na modelagem neural de tópicos: um estudo controlado no ogbn-arxiv. Trabalho final de PLN, UFRGS, 2026.
+#+end_example
+
+* Declaração de uso de IA generativa
+
+O assistente Claude (Anthropic) foi usado como apoio para geração e revisão de código, discussão do desenho experimental e das métricas, e formatação de tabelas e figuras. O teste de intrusão de palavras foi respondido exclusivamente pelo autor. Todo o código e o texto produzidos com auxílio da ferramenta foram revisados, executados e validados pelo autor, que assume a responsabilidade pelo conteúdo.
+
+* Licença
+#TODO
