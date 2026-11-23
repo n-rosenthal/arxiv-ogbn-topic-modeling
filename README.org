@@ -42,7 +42,8 @@ TODO: ajuste esta árvore aos arquivos reais do repositório.
 .
 ├── README.org
 ├── artigo/            # artigo em org-mode (SBC) e refs.bib
-├── apresentacao/      # slides (Org + Beamer)
+├── docs/	       # documentação módulo a módulo
+├── presentation/      # slides (Org + Beamer)
 ├── src/               # código: dados, embeddings, grafo, modelos, métricas
 ├── results/           # um JSON por modelo, K e semente
 └── intrusao/          # itens, gabarito e respostas do teste de intrusão
@@ -58,24 +59,7 @@ pip install -r requirements.txt
 #+end_src
 
 * Como reproduzir
-
-TODO: substitua os comandos abaixo pelos reais.
-
-1. Baixar o ogbn-arxiv e o arquivo bruto de títulos e resumos distribuído pelo OGB, e filtrar os artigos (remove 680 dos 169.343 nós, restando 168.663).
-2. Calcular os embeddings uma única vez com =all-MiniLM-L6-v2= (384 dimensões, até 256 /tokens/, norma unitária).
-3. Construir os grafos sem vazamento temporal (kNN com $k=10$, citações, ambos, aleatório).
-4. Treinar cada modelo com as sementes 0 a 4. As execuções são retomáveis e gravam um arquivo por modelo, $K$ e semente.
-5. Agregar os resultados (médias, diferenças pareadas, IC95% e correção de Holm).
-
-#+begin_src sh
-# TODO: comandos reais, por exemplo
-# python -m src.prepare
-# python -m src.embed
-# python -m src.train --model ctm --k-topics 50 --seed 0
-# python -m src.aggregate
-#+end_src
-
-O tempo de treino por execução vai de 2,6 min (NMF) a cerca de 30 min (modelos com contagens, embedding e grafo), e a 16 a 18 min nas variantes sem contagens na entrada, sem contar os embeddings.
+Veja ~docs/README.org~ para a documentação completa módulo a módulo e o /pipeline/ de execução.
 
 * Protocolo, em uma página
 
@@ -96,7 +80,8 @@ O tempo de treino por execução vai de 2,6 min (NMF) a cerca de 30 min (modelos
 #TODO?
 
 #+begin_example
-Dal Corso, N. R. Embeddings de Transformers e vizinhança em grafo na modelagem neural de tópicos: um estudo controlado no ogbn-arxiv. Trabalho final de PLN, UFRGS, 2026.
+Dal Corso, N. R. Embeddings de Transformers e vizinhança em grafo na modelagem neural de tópicos:
+um estudo controlado no ogbn-arxiv. Trabalho final de PLN, UFRGS, 2026.
 #+end_example
 
 * Declaração de uso de IA generativa
