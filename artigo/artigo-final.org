@@ -1,0 +1,190 @@
+#+TITLE: Embeddings de Transformers e vizinhança em grafo na modelagem neural de tópicos: um estudo controlado no ogbn-arxiv
+#+AUTHOR: Nícolas Rosenthal Dal Corso\inst{1}
+#+LANGUAGE: pt-br
+#+LATEX_CLASS: sbc
+#+LATEX_COMPILER: pdflatex
+#+OPTIONS: toc:nil num:t H:3 date:nil todo:nil tasks:nil ^:{} broken-links:mark
+#+LATEX_HEADER: \usepackage{sbc-template}
+#+LATEX_HEADER: \usepackage[utf8]{inputenc}
+#+LATEX_HEADER: \usepackage[T1]{fontenc}
+#+LATEX_HEADER: \usepackage[brazil]{babel}
+#+LATEX_HEADER: \usepackage{graphicx,url,booktabs,amsmath,amssymb}
+#+LATEX_HEADER: \sloppy
+#+LATEX_HEADER: \address{Instituto de Informática -- Universidade Federal do Rio Grande do Sul (UFRGS)\\ Porto Alegre -- RS -- Brasil\\ \email{nrcorso@inf.ufrgs.br}}
+#+CITE_EXPORT: bibtex sbc
+#+BIBLIOGRAPHY: refs.bib
+
+# ======================================================================
+# Comentários para construção do ~.pdf~ a partir de org-mode -> Emacs
+#
+# 1. Uma vez por sessão do Emacs, avalie o bloco abaixo (C-c C-c). Ele registra a
+#    classe "sbc" no exportador LaTeX.
+# 2. Coloque sbc-template.sty e sbc.bst (modelo oficial da SBC, o link está no
+#    enunciado do trabalho) na mesma pasta deste arquivo, junto com refs.bib.
+# 3. Exporte com C-c C-e l p (PDF). Se as citações não aparecerem, rode
+#    pdflatex + bibtex + pdflatex + pdflatex no .tex gerado.
+# ======================================================================
+
+#+begin_src emacs-lisp :results none :exports none
+(setq org-latex-hyperref-template nil) ; o modelo SBC não carrega hyperref
+(with-eval-after-load 'ox-latex
+  (add-to-list 'org-latex-classes
+               '("sbc"
+                 "\\documentclass[12pt]{article}\n[NO-DEFAULT-PACKAGES]\n[NO-PACKAGES]"
+                 ("\\section{%s}" . "\\section*{%s}")
+                 ("\\subsection{%s}" . "\\subsection*{%s}")
+                 ("\\subsubsection{%s}" . "\\subsubsection*{%s}")
+                 ("\\paragraph{%s}" . "\\paragraph*{%s}"))))
+(require 'ox-latex)
+(unless (assoc "sbc" org-latex-classes)
+  (add-to-list 'org-latex-classes
+               '("sbc" "\\documentclass[12pt]{article}\n[NO-DEFAULT-PACKAGES]\n[NO-PACKAGES]"
+                 ("\\section{%s}" . "\\section*{%s}") ("\\subsection{%s}" . "\\subsection*{%s}")
+                 ("\\subsubsection{%s}" . "\\subsubsection*{%s}") ("\\paragraph{%s}" . "\\paragraph*{%s}"))))
+#+end_src
+
+#+begin_abstract
+Neural topic models can take Transformer embeddings and graph neighbourhoods as input, but little is known about how much each component contributes when evaluation avoids temporal leakage. We compare LDA, NMF, ProdLDA and a CTM-style model on 168,663 ogbn-arxiv papers, using the official temporal split and a protocol in which a paper only sees neighbours that are not newer than itself. Neighbours come from embedding similarity (kNN), citations or both; controls use random neighbours and an encoder that receives only embeddings. We measure coherence (NPMI), diversity and agreement with arXiv categories (NMI and accuracy) over five seeds, with Holm correction. Gains are small: neighbours raise accuracy by 0.4 to 0.8 percentage points over CTM without changing NPMI, random neighbours do not help, and citations alone do not beat kNN. The best configuration, embeddings plus graph without bag-of-words input, reaches 0.705 accuracy, but with lower topic diversity. Agreement with weak labels is not topic quality, so we also provide a human word-intrusion protocol.
+#+end_abstract
+
+#+begin_resumo
+Modelos neurais de tópicos podem receber embeddings de Transformers e a vizinhança em um grafo, mas pouco se sabe sobre a contribuição de cada componente quando a avaliação evita vazamento temporal. Comparamos LDA, NMF, ProdLDA e um modelo no estilo CTM em 168.663 artigos do ogbn-arxiv, com a divisão temporal oficial e um protocolo em que cada artigo só enxerga vizinhos que não sejam mais novos que ele. Os vizinhos vêm da similaridade entre embeddings (kNN), de citações ou de ambos; os controles usam vizinhos aleatórios e um codificador que recebe só embeddings. Medimos coerência (NPMI), diversidade e concordância com as categorias do arXiv (NMI e acurácia) em cinco sementes, com correção de Holm. Os ganhos são pequenos: os vizinhos elevam a acurácia em 0,4 a 0,8 ponto percentual sobre o CTM sem alterar o NPMI, vizinhos aleatórios não ajudam e as citações sozinhas não superam o kNN. A melhor configuração, embeddings mais grafo sem contagens na entrada, chega a 0,705 de acurácia, com menor diversidade. Concordância com rótulos fracos não é qualidade de tópicos; por isso incluímos um protocolo humano de intrusão de palavras.
+#+end_resumo
+
+
+* Introdução
+Organizar grandes coleções de artigos científicos exige métodos automáticos que revelem os temas presentes e como eles se distribuem entre os documentos. A modelagem de tópicos descreve cada documento como uma mistura de tópicos, e cada tópico como uma distribuição sobre palavras [cite:@blei2003lda;@lee1999nmf], e tem sido usada para analisar a evolução de áreas científicas [cite:@hall-etal-2008-studying]. Os modelos clássicos, no entanto, usam apenas contagens de palavras: ignoram o contexto semântico e tratam cada documento isoladamente, embora artigos científicos formem uma rede de citações.
+
+Dois desenvolvimentos recentes atacam essas limitações. De um lado, modelos neurais baseados em autoencoders variacionais [cite:@kingma2014vae;@srivastava2017prodlda] foram combinados com representações de Transformers [cite:@vaswani2017attention;@devlin2019bert;@reimers2019sbert], produzindo modelos de tópicos contextualizados [cite:@bianchi2021ctm;@grootendorst2022bertopic]. De outro, usar relações entre documentos para melhorar tópicos remonta aos modelos relacionais [cite:@chang2009rtm], e as redes neurais de grafos [cite:@kipf2017gcn;@hamilton2017graphsage] oferecem uma forma moderna de agregar a vizinhança. Não é claro, porém, se a vizinhança ainda acrescenta algo quando o texto já é representado por um Transformer, em especial porque alguns embeddings científicos já incorporam sinal de citação [cite:@cohan2020specter].
+
+Este trabalho investiga a pergunta: /em modelos neurais de tópicos para artigos científicos, a informação de vizinhança (similaridade semântica e citações) melhora a qualidade dos tópicos e a representação dos documentos além do que o embedding de um Transformer já fornece, quando a avaliação é feita em artigos posteriores aos do treino?/ Formulamos quatro hipóteses, refinadas após um experimento-piloto em 20 mil documentos (a avaliação final usa o conjunto completo e cinco sementes):
+
+- *H1.* Acrescentar o embedding do Transformer à entrada do codificador melhora a representação dos documentos em relação ao modelo só com contagens.
+- *H2.* Agregar vizinhos ao embedding melhora a representação dos documentos, mas não a coerência dos tópicos, pois o decodificador não muda.
+- *H3.* Arestas de citação trazem informação que o kNN sobre embeddings não traz.
+- *H4.* Os ganhos de H1 e H2 persistem nos artigos mais recentes (teste), sem queda maior que a dos modelos sem grafo.
+
+Usamos o ogbn-arxiv [cite:@hu2020ogb], com cerca de 169 mil artigos de ciência da computação (título e resumo como texto) e uma divisão temporal em que o teste contém apenas artigos de 2019 em diante. Nossas contribuições são: (i) um protocolo de vizinhança sem vazamento temporal, em que um artigo só enxerga vizinhos não posteriores a ele; (ii) uma comparação controlada, com o mesmo codificador, do efeito do embedding e de cada tipo de aresta; e (iii) evidência de que os ganhos são pequenos: sobre o ProdLDA, os modelos com Transformer e grafo melhoram o NMI em cerca de 0,01 e a acurácia em 0,7 a 1,4 ponto percentual, sem diferença detectável na coerência; vizinhos aleatórios não produzem o ganho, e uma variante em que o codificador recebe só o embedding e o grafo obtém os maiores NMI e acurácia, com menor diversidade. O código está em @@latex:\url{https://github.com/n-rosenthal/arxiv-ogbn-topic-modeling}@@. A Seção 2 apresenta os fundamentos e os trabalhos relacionados, a Seção 3 a metodologia, a Seção 4 os experimentos e a Seção 5 as conclusões.
+
+* Fundamentos e Trabalhos Relacionados
+
+*Modelos de tópicos.* Seja $\mathbf{x}\in\mathbb{N}^{V}$ o vetor de contagens de um documento sobre um vocabulário de tamanho $V$. Um modelo com $K$ tópicos associa a cada tópico $k$ uma distribuição $\boldsymbol{\beta}_k$ sobre o vocabulário e a cada documento uma distribuição $\boldsymbol{\theta}$ sobre os tópicos. No LDA [cite:@blei2003lda], $\boldsymbol{\theta}$ e $\boldsymbol{\beta}_k$ têm priors de Dirichlet; usamos a inferência variacional /online/ [cite:@hoffman2010online]. Na fatoração não negativa (NMF) [cite:@lee1999nmf], a matriz documento-termo (aqui, tf-idf) é aproximada por $\mathbf{W}\mathbf{H}$ com entradas não negativas. Modelos como esses já foram usados, por exemplo, para mapear a história de uma área científica [cite:@hall-etal-2008-studying].
+
+*Modelos neurais e Transformers.* Um autoencoder variacional [cite:@kingma2014vae] aprende um codificador $q_\phi(\mathbf{z}\mid\mathbf{x})$ e um decodificador $p_\psi(\mathbf{x}\mid\mathbf{z})$ maximizando o limite inferior da evidência (ELBO). O ProdLDA [cite:@srivastava2017prodlda] adapta essa estrutura a tópicos: o prior de Dirichlet é aproximado por uma normal logística, $\boldsymbol{\theta}=\mathrm{softmax}(\mathbf{z})$ e o decodificador é um produto de especialistas; o ETM [cite:@dieng2020etm] usa embeddings de palavras. O CTM [cite:@bianchi2021ctm] concatena à entrada do codificador o embedding de um Transformer [cite:@vaswani2017attention] (BERT [cite:@devlin2019bert], adaptado a frases e documentos [cite:@reimers2019sbert]), mantendo a reconstrução das contagens; usamos uma versão compacta, o MiniLM [cite:@wang2020minilm]. O BERTopic [cite:@grootendorst2022bertopic] agrupa embeddings e extrai palavras por tf-idf por grupo.
+
+*Grafos.* Redes neurais de grafos atualizam cada nó agregando seus vizinhos [cite:@kipf2017gcn;@hamilton2017graphsage]. Quando a propagação é fixa e pré-calculada [cite:@wu2019sgc;@frasca2020sign], a rede aprende só uma transformação sobre $[\mathbf{X},\mathbf{A}\mathbf{X},\dots]$, tão barata quanto um perceptron; adotamos essa formulação. A média dos embeddings dos vizinhos é a propagação de uma convolução de grafo linear e sem pesos, e os pesos que a combinam com o restante da entrada são aprendidos pelo codificador; não treinamos, portanto, uma rede de grafos de ponta a ponta. O /Relational Topic Model/ [cite:@chang2009rtm] trata as citações como parte do modelo generativo; aqui o grafo é apenas entrada do codificador. O ogbn-arxiv [cite:@hu2020ogb], derivado do MAG [cite:@wang2020mag], é usado em geral para classificação de nós; nós o usamos para modelagem de tópicos, com as categorias como rótulos fracos.
+
+*Avaliação.* A coerência de um tópico é medida pela informação mútua pontual normalizada (NPMI) [cite:@bouma2009npmi;@roder2015coherence] entre suas palavras mais prováveis, e a diversidade, pela fração de palavras distintas entre os tópicos [cite:@dieng2020etm]. Como a coerência automática concorda só em parte com o julgamento humano [cite:@hoyle2021broken], acrescentamos NMI e acurácia contra as categorias e um teste de intrusão de palavras [cite:@chang2009tea].
+
+* Metodologia
+
+#+CAPTION: Visão geral do pipeline.\label{fig:pipeline}
+#+ATTR_LATEX: :width 0.92\linewidth
+[[file:figs/pipeline.pdf]]
+
+*Dados.* Usamos o ogbn-arxiv [cite:@hu2020ogb], um grafo de citações entre artigos de ciência da computação construído a partir do Microsoft Academic Graph [cite:@wang2020mag]. Cada nó tem um ano e uma de 40 categorias do arXiv, usada como referência (rótulo fraco, pois é uma categoria atribuída à publicação, não uma anotação de tópicos). Título e resumo vêm do arquivo bruto distribuído pelo OGB. Removemos os artigos sem título ou com resumo de menos de 30 palavras (680 dos 169.343 nós), restando 168.663, e tratamos as 1.160.791 arestas como não direcionadas, sem duplicatas nem laços. A divisão é a temporal oficial do OGB: treino com artigos até 2017 (90.464), validação com 2018 (29.715) e teste de 2019 em diante (48.484). O vocabulário é construído só com o treino: palavras em pelo menos 20 documentos e em no máximo 30% deles, sem /stopwords/ do inglês nem termos genéricos de resumos, limitado às 5.000 mais frequentes. Seja $\mathbf{x}_i\in\mathbb{N}^V$ o vetor de contagens do documento $i$, $y_i$ sua categoria e $s(i)\in\{\text{treino},\text{val},\text{teste}\}$ sua divisão.
+
+*Representação do texto.* O texto é a concatenação de título e resumo. Calculamos um embedding $\mathbf{e}_i\in\mathbb{R}^{384}$ com o =all-MiniLM-L6-v2= [cite:@reimers2019sbert;@wang2020minilm], truncando em 256 /tokens/ e normalizando em norma unitária. Ele é calculado uma única vez e usado como entrada fixa.
+
+*Construção do grafo.* Um artigo só pode ter vizinhos que não sejam posteriores a ele em termos de divisão. Para o documento $i$, o conjunto de candidatos é $P_i=\{j\neq i : s(j)\preceq s(i)\}$, com treino $\prec$ validação $\prec$ teste; assim, um artigo de treino nunca recebe informação de um de validação ou teste, e um de validação nunca de um de teste. Definimos
+\begin{align}
+N_c(i) &= \{\,j\in P_i : (i,j)\in E \ \text{ou}\ (j,i)\in E\,\}, \\
+N_k(i) &= \text{os } k=10 \text{ elementos de } P_i \text{ de maior cosseno } \mathbf{e}_i^{\top}\mathbf{e}_j, \\
+N_b(i) &= N_c(i)\cup N_k(i),
+\end{align}
+em que $E$ é o conjunto de arestas de citação. A matriz de adjacência média é $A_{ij}=1/|N(i)|$ se $j\in N(i)$ e $0$ caso contrário, com $N$ sendo $N_c$, $N_k$ ou $N_b$ conforme a variante. A propagação é feita uma vez, antes do treino, e a entrada do codificador é $\mathbf{h}_i=[\tilde{\mathbf{x}}_i;\ \mathbf{e}_i;\ (\mathbf{A}\mathbf{E})_i]$, com $\tilde{\mathbf{x}}_i$ a contagem em $\log(1+x)$ normalizada em norma $\ell_2$; nas variantes sem grafo, o último bloco é omitido. Isso equivale a uma convolução de grafo de propagação fixa [cite:@wu2019sgc;@frasca2020sign].
+
+*Modelos.* O modelo é um autoencoder variacional no estilo ProdLDA [cite:@srivastava2017prodlda] e CTM [cite:@bianchi2021ctm]. O codificador é um perceptron de duas camadas ocultas (256 unidades, ReLU, /dropout/ 0,2) com normalização em lote [cite:@ioffe2015batchnorm] na entrada, que produz $\boldsymbol{\mu}_i$ e $\log\boldsymbol{\sigma}^2_i\in\mathbb{R}^K$. Amostramos $\mathbf{z}_i=\boldsymbol{\mu}_i+\boldsymbol{\sigma}_i\odot\boldsymbol{\epsilon}$, com $\boldsymbol{\epsilon}\sim\mathcal{N}(\mathbf{0},\mathbf{I})$, e $\boldsymbol{\theta}_i=\mathrm{softmax}(\mathbf{z}_i)$. O decodificador calcula $\log p(w\mid\boldsymbol{\theta}_i)=\log\mathrm{softmax}\big(\mathrm{BN}(\mathbf{W}\boldsymbol{\theta}_i)+\mathbf{b}\big)_w$, com $\mathbf{b}$ inicializado com o logaritmo das frequências de unigramas do treino. A perda por documento é
+\begin{equation}
+\ell_i = -\sum_{w=1}^{V} x_{iw}\,\log p(w\mid\boldsymbol{\theta}_i) + \lambda\,\mathrm{KL}\big(\mathcal{N}(\boldsymbol{\mu}_i,\mathrm{diag}\,\boldsymbol{\sigma}_i^2)\,\|\,\mathcal{N}(\mathbf{0},v\mathbf{I})\big),
+\label{eq:perda}
+\end{equation}
+com $v=(1-\tfrac{2}{K})+\tfrac{1}{K}$ (aproximação de Laplace de um prior de Dirichlet simétrico com parâmetro 1) e $\lambda$ crescendo linearmente de 0 a 1 nas 10 primeiras épocas, para evitar o colapso dos tópicos. Também aplicamos /dropout/ de 0,2 sobre $\boldsymbol{\theta}$ no treino. Usamos Adam [cite:@kingma2015adam] com taxa 0,002, $\beta_1=0{,}99$, lotes de 512, no máximo 100 épocas e parada antecipada com paciência 8 sobre a perda de validação. Na inferência, $\hat{\boldsymbol{\theta}}_i=\mathrm{softmax}(\boldsymbol{\mu}_i)$; as 10 palavras mais prováveis de cada tópico $k$ vêm do decodificador aplicado ao vetor canônico $\mathbf{e}_k$.
+
+A Tabela \ref{tab:modelos} lista os modelos. LDA (variacional /online/, 20 iterações) e NMF (tf-idf, inicialização =nndsvda=) são os do scikit-learn [cite:@pedregosa2011sklearn]. Todos usam $K=50$ e o mesmo vocabulário. As três últimas linhas são controles: vizinhos aleatórios, com o mesmo grau e protocolo temporal, testam se o ganho vem da informação dos vizinhos ou só do aumento da entrada; as variantes /Só emb./ retiram as contagens do codificador (o decodificador continua reconstruindo as contagens), como na variante sem contagens do CTM, o ZeroShotTM [cite:@bianchi2021zeroshot].
+
+#+CAPTION: Modelos comparados.\label{tab:modelos}
+#+ATTR_LATEX: :booktabs t :font \footnotesize :align llcc
+| Modelo          | Entrada do codificador      | Transformer | Grafo      |
+|-----------------+-----------------------------+-------------+------------|
+| LDA             | contagens                   | não         | não        |
+| NMF             | tf-idf                      | não         | não        |
+| ProdLDA         | contagens                   | não         | não        |
+| CTM             | contagens + embedding       | sim         | não        |
+| CTM + kNN       | contagens + emb. + vizinhos | sim         | kNN        |
+| CTM + citação   | contagens + emb. + vizinhos | sim         | citação    |
+| CTM + ambos     | contagens + emb. + vizinhos | sim         | kNN + cit. |
+| CTM + aleat.    | contagens + emb. + vizinhos | sim         | aleatório  |
+| Só emb.         | embedding                   | sim         | não        |
+| Só emb. + grafo | emb. + vizinhos             | sim         | kNN + cit. |
+
+*Protocolo de avaliação.* Os modelos são treinados só com o treino; a validação serve apenas à parada antecipada, os hiperparâmetros são fixos (não foram ajustados) e o teste é avaliado uma única vez por execução. Cada modelo é treinado com cinco sementes (0 a 4), que variam inicialização, ordem dos lotes e /dropout/. Todos são avaliados pela mesma função, a partir das 10 palavras principais de cada tópico e dos $\hat{\boldsymbol{\theta}}_i$. O *NPMI* de um par é $\log\frac{P(w,w')}{P(w)P(w')}\big/\big(-\log P(w,w')\big)$, com probabilidades em nível de documento estimadas em todo o corpus (pares que nunca coocorrem valem $-1$); o valor do tópico é a média dos 45 pares. A *diversidade* é a fração de palavras distintas entre as $10K$ palavras principais. Medimos ainda o *NMI* entre o tópico dominante $\arg\max_k\hat\theta_{ik}$ e a categoria $y_i$, e a *acurácia* e o *F1-macro* de uma regressão logística treinada sobre $\log\hat{\boldsymbol{\theta}}_i$ no treino e avaliada no teste.
+
+Os resultados são médias e desvios-padrão sobre as sementes. Para as hipóteses, calculamos a diferença pareada por semente entre dois modelos e seu intervalo de confiança de 95% (distribuição $t$, 4 graus de liberdade). A métrica principal de H1, H2 e H3 é o NMI no teste; as demais são secundárias. Com cinco sementes, o intervalo é um indicativo, não uma prova, e não inclui a variação de amostragem dos documentos. Para limitar o efeito das múltiplas comparações, aplicamos também um teste $t$ pareado bilateral com correção de Holm dentro de cada família (H1 a H4, controles e extras); as diferenças que resistem são marcadas com \(^{\dagger}\).
+
+* Experimentos e Resultados
+
+*Configuração.* Os experimentos usam Python 3.14.6, PyTorch 2.15.0, scikit-learn 1.9.1 e sentence-transformers 6.2.0, em um notebook com Intel Core i5-11320H (8 núcleos lógicos, 4 /threads/ do PyTorch), 7,5 GiB de memória e sem GPU. Os modelos neurais usam $K=50$, $k=10$ vizinhos e um salto de propagação; a mediana é de 79 /tokens/ por documento. O tempo de treino por execução vai de 2,6 min (NMF) a cerca de 30 min (modelos com contagens, embedding e grafo) e a 16 a 18 min nas variantes sem contagens; esses tempos não incluem os embeddings e podem ter sido afetados por execuções simultâneas. O código e os resultados em JSON estão no repositório citado na Introdução.
+
+*Resultados principais.* Os modelos neurais superam LDA e NMF em NMI, acurácia e F1 (Tabela \ref{tab:principal}); entre eles, as diferenças são pequenas. Em relação ao ProdLDA, o CTM melhora o NMI em 0,010 (IC95% $[-0{,}001;\,0{,}021]$) e a acurácia em 0,007 ($[0{,}004;\,0{,}009]$); com o grafo, o NMI sobe 0,013 a 0,014 e a acurácia 0,011 a 0,014. Em relação ao CTM sem grafo, os ganhos de NMI são de 0,003 a 0,004, com intervalos que incluem zero, e os de acurácia, de 0,004 a 0,008, com intervalos que não incluem. A coerência (NPMI) não difere entre os modelos neurais nem do NMF.
+
+#+CAPTION: Resultados no teste, $K=50$ (média $\pm$ desvio em 5 sementes).\label{tab:principal}
+#+ATTR_LATEX: :booktabs t :font \scriptsize\setlength{\tabcolsep}{2.5pt} :align lccccc
+| Modelo        | NPMI            | Diversid.       | NMI             | Acurácia        | F1-macro        |
+|---------------+-----------------+-----------------+-----------------+-----------------+-----------------|
+| LDA           | 0,156 $\pm$ 0,005 | 0,828 $\pm$ 0,008 | 0,315 $\pm$ 0,009 | 0,568 $\pm$ 0,012 | 0,318 $\pm$ 0,005 |
+| NMF           | 0,219 $\pm$ 0,005 | 0,855 $\pm$ 0,014 | 0,244 $\pm$ 0,002 | 0,544 $\pm$ 0,002 | 0,304 $\pm$ 0,003 |
+| ProdLDA       | 0,223 $\pm$ 0,004 | 0,854 $\pm$ 0,020 | 0,387 $\pm$ 0,004 | 0,679 $\pm$ 0,002 | 0,463 $\pm$ 0,003 |
+| CTM           | 0,226 $\pm$ 0,011 | 0,869 $\pm$ 0,013 | 0,397 $\pm$ 0,007 | 0,686 $\pm$ 0,001 | 0,475 $\pm$ 0,005 |
+| CTM + kNN     | 0,226 $\pm$ 0,015 | 0,862 $\pm$ 0,020 | 0,400 $\pm$ 0,005 | 0,693 $\pm$ 0,002 | 0,485 $\pm$ 0,004 |
+| CTM + citação | 0,224 $\pm$ 0,008 | 0,862 $\pm$ 0,023 | 0,400 $\pm$ 0,003 | 0,690 $\pm$ 0,002 | 0,479 $\pm$ 0,003 |
+| CTM + ambos   | 0,225 $\pm$ 0,004 | 0,871 $\pm$ 0,020 | 0,401 $\pm$ 0,003 | 0,693 $\pm$ 0,002 | 0,487 $\pm$ 0,008 |
+| CTM + aleat.  | 0,220 $\pm$ 0,008 | 0,866 $\pm$ 0,015 | 0,395 $\pm$ 0,003 | 0,686 $\pm$ 0,002 | 0,473 $\pm$ 0,005 |
+| Só emb.       | 0,231 $\pm$ 0,015 | 0,832 $\pm$ 0,011 | 0,408 $\pm$ 0,007 | 0,686 $\pm$ 0,001 | 0,483 $\pm$ 0,012 |
+| Só emb. + grafo | 0,221 $\pm$ 0,007 | 0,836 $\pm$ 0,016 | 0,421 $\pm$ 0,005 | 0,705 $\pm$ 0,002 | 0,512 $\pm$ 0,005 |
+
+*Hipóteses.* A Tabela \ref{tab:hipoteses} traz as comparações pré-especificadas. H1 é confirmada só em parte: o ganho do CTM sobre o ProdLDA em NMI (métrica principal) tem intervalo que inclui zero, e o de acurácia (+0,007) não. Para H2, os três tipos de grafo melhoram a acurácia em 0,004 a 0,008 sobre o CTM, com intervalos fora de zero, mas não o NMI, e o NPMI não muda (variação de \(-\)0,003 a 0,000). H3 não é confirmada: a citação sozinha não supera o kNN (acurácia \(-\)0,003, intervalo que inclui zero) e a combinação tampouco (+0,001); a única diferença fora de zero, ambos sobre citação, na acurácia (+0,004), não resiste a Holm. Para H4, a queda de NMI da validação para o teste dos modelos com kNN ou citação não difere da do CTM; a combinação cai 0,002 a mais (IC95% $[0{,}0003;\,0{,}0039]$), efeito minúsculo que, entre seis comparações, pode ser acaso.
+
+#+CAPTION: Diferenças pareadas por semente no teste ($K=50$, 5 sementes): média e IC95% ($t$, 4 g.l.). \(^{\dagger}\): resiste à correção de Holm dentro da família.\label{tab:hipoteses}
+#+ATTR_LATEX: :booktabs t :font \scriptsize\setlength{\tabcolsep}{2.5pt} :align llcc
+| Hip. | Comparação | \(\Delta\)NMI [IC95%] | \(\Delta\)Acurácia [IC95%] |
+|-----+-----+-----+-----|
+| H1 | CTM \(-\) ProdLDA | +0,0101 [\(-\)0,0011; +0,0212] | +0,0065 [+0,0041; +0,0089]\(^{\dagger}\) |
+| H2 | CTM + kNN \(-\) CTM | +0,0028 [\(-\)0,0054; +0,0111] | +0,0070 [+0,0037; +0,0103]\(^{\dagger}\) |
+| H2 | CTM + citação \(-\) CTM | +0,0026 [\(-\)0,0070; +0,0123] | +0,0042 [+0,0012; +0,0072] |
+| H2 | CTM + ambos \(-\) CTM | +0,0036 [\(-\)0,0053; +0,0125] | +0,0077 [+0,0046; +0,0107]\(^{\dagger}\) |
+| H3 | citação \(-\) kNN | \(-\)0,0002 [\(-\)0,0053; +0,0049] | \(-\)0,0028 [\(-\)0,0064; +0,0009] |
+| H3 | ambos \(-\) kNN | +0,0007 [\(-\)0,0057; +0,0072] | +0,0007 [\(-\)0,0012; +0,0026] |
+| H3 | ambos \(-\) citação | +0,0009 [\(-\)0,0029; +0,0048] | +0,0035 [+0,0011; +0,0059] |
+| controle | kNN \(-\) aleatórios | +0,0058 [+0,0003; +0,0113] | +0,0070 [+0,0043; +0,0097]\(^{\dagger}\) |
+| controle | aleatórios \(-\) CTM | \(-\)0,0030 [\(-\)0,0119; +0,0060] | \(-\)0,0001 [\(-\)0,0033; +0,0032] |
+| extra | só emb. + grafo \(-\) CTM + ambos | +0,0202 [+0,0129; +0,0275]\(^{\dagger}\) | +0,0119 [+0,0074; +0,0165]\(^{\dagger}\) |
+| extra | só emb. \(-\) CTM | +0,0107 [\(-\)0,0014; +0,0228] | +0,0004 [\(-\)0,0022; +0,0031] |
+| extra | só emb. + grafo \(-\) só emb. | +0,0131 [+0,0030; +0,0232] | +0,0192 [+0,0163; +0,0221]\(^{\dagger}\) |
+
+*Controles.* Os vizinhos aleatórios não ajudam (NMI \(-\)0,003, acurácia \(-\)0,0001 em relação ao CTM), enquanto o kNN os supera em acurácia (+0,0070; IC95% $[0{,}0043;\,0{,}0097]$, resistindo a Holm) e, sem resistir, em NMI (+0,0058). A informação dos vizinhos, e não o aumento da entrada, produz o ganho de acurácia. Quando o codificador recebe só o embedding, o desempenho é igual ao do CTM (acurácia +0,0004; NMI +0,011, intervalo que inclui zero): as contagens na entrada são redundantes diante do embedding, embora o decodificador ainda as reconstrua. A diversidade cai (0,832 contra 0,869) e o NPMI não muda. Com o grafo, porém, essa variante obtém os maiores valores: NMI 0,421, acurácia 0,705 e F1 0,512, com ganhos sobre ela mesma sem grafo de +0,013 em NMI (IC95% $[0{,}003;\,0{,}023]$, sem resistir a Holm) e +0,019 em acurácia ($[0{,}016;\,0{,}022]$, resistindo), e sobre o CTM + ambos de +0,020 em NMI e +0,012 em acurácia, ambos resistindo. Uma explicação não testada é que as contagens já descrevem o próprio documento, de modo que os vizinhos acrescentam menos; sem elas, a média dos vizinhos traz informação nova. Há duas ressalvas: a diversidade é menor e o NPMI não melhora, então os ganhos não indicam tópicos mais coerentes; e documentos vizinhos tendem a ter a mesma categoria, de modo que suavizar o embedding pela vizinhança aproxima os tópicos das categorias sem necessariamente melhorá-los como descrição do texto, o que o teste de intrusão pretende separar.
+
+*Texto escasso: só o título.* Repetimos o experimento usando só o título, com os mesmos artigos, divisões, arestas e sementes. O vocabulário cai para 3.532 palavras, a mediana é de 6 palavras por documento e 315 documentos ficam vazios. O desempenho cai muito (NMI de 0,21 a 0,25 contra 0,39 a 0,40; NPMI próximo de 0,09 contra 0,22), e o efeito do Transformer é maior: o CTM supera o ProdLDA em 0,030 de NMI (IC95% $[0{,}014;\,0{,}046]$) e 0,026 de acurácia ($[0{,}020;\,0{,}032]$), contra 0,007 de acurácia com o texto completo. Os vizinhos continuam ajudando a acurácia: +0,008 (kNN), +0,010 (citação) e +0,015 (ambos) sobre o CTM, todos com intervalo fora de zero e resistindo a Holm, mas sem ganho de NMI distinguível de zero. Vizinhos aleatórios não diferem do CTM, enquanto o kNN os supera em NMI (+0,016; $[0{,}004;\,0{,}029]$) e em acurácia (+0,009; $[0{,}006;\,0{,}011]$). A citação isolada não difere do kNN (acurácia +0,001); a combinação o supera em acurácia (+0,007; $[0{,}002;\,0{,}012]$), mas isso não resiste a Holm (p ajustado \(\approx\) 0,12) nem aparece com o texto completo, e não o tratamos como evidência. Não comparamos os dois cenários diretamente, e por isso não afirmamos que o grafo ajuda mais com menos texto.
+
+*Estabilidade dos tópicos.* Alinhamos os tópicos de duas execuções um a um (algoritmo húngaro) pela sobreposição de Jaccard entre suas 10 palavras principais, em todos os 10 pares das cinco sementes de cada modelo. Os modelos neurais são pouco estáveis entre sementes (Jaccard médio de 0,27 a 0,30, com só 36% a 46% dos tópicos com Jaccard $\geq 0{,}3$), e o LDA também (0,273); o NMF é muito mais estável (0,678). Comparados com o CTM na mesma semente, o CTM + kNN e o CTM + ambos têm Jaccard de 0,298 e 0,297, o mesmo do CTM consigo mesmo entre sementes (0,283) e do ProdLDA (0,281), enquanto LDA e NMF diferem muito mais (0,136 e 0,168). Portanto o grafo não muda os tópicos além da variação de uma nova execução, e não atribuímos a ele a melhora de nenhum tópico individual. Parte dos tópicos é estável: na semente 0, três pares entre o CTM e o CTM + ambos têm Jaccard de 0,82, com a mesma categoria dominante (tradução automática, em cs.CL; canal de interferência, em cs.IT; detecção de comunidades, em cs.SI). Em um caso isolado, escolhido por ser o maior ganho de NPMI entre os 50 pares, o tópico misto do CTM com "/tile/, /assembly/" e "/consensus/, /controllability/" (NPMI 0,01) passa a se concentrar em controle e consenso (0,23) com o grafo; dada a instabilidade acima, não o apresentamos como efeito do grafo.
+
+*Sensibilidade a $K$ e a $k$.* Repetimos o CTM e o CTM + kNN com $K=20$ e $K=100$, e o CTM + kNN com $k=5$ e $k=20$ ($K=50$), com as sementes 0 a 2; cada diferença é pareada com o CTM do mesmo $K$. O ganho de acurácia do kNN tem o mesmo sinal e ordem de grandeza em todas as configurações: +0,0065, +0,0070 e +0,0080 para $K=20$, 50 e 100, e +0,0056, +0,0070 e +0,0065 para $k=5$, 10 e 20. O intervalo inclui zero com $K=20$ e com $k=5$, mas com três sementes o valor crítico de $t$ é 4,3 (contra 2,8 com cinco), o que indica falta de poder, não ausência de efeito. O ganho de NMI cresce com $K$ (\(-\)0,003, +0,003 e +0,010) e, com $K=100$, o intervalo exclui zero ($[0{,}004;\,0{,}015]$, sem correção de Holm e com $n=3$): o grafo parece ajudar mais com mais tópicos, o que não testamos além disso. O NPMI não muda em nenhum caso. O próprio nível das métricas depende mais de $K$ do que do grafo: a acurácia do CTM sobe de 0,643 para 0,694 e seu NPMI cai de 0,236 para 0,170 de $K=20$ para $K=100$.
+
+*Avaliação humana: intrusão de palavras.* Para complementar o NPMI, calculado no próprio corpus, e as categorias, que são rótulos fracos, aplicamos o teste de intrusão de palavras [cite:@chang2009tea;@hoyle2021broken]. Sorteamos 25 tópicos do CTM e 25 do CTM + ambos (semente 1, $K=50$). Cada item mostra as cinco primeiras palavras de um tópico e uma intrusa, tirada das cinco primeiras de outro tópico do mesmo modelo e fora das dez primeiras do tópico avaliado, em ordem aleatória; os 50 itens foram embaralhados, e o avaliador, o próprio autor, não sabia a que modelo cada item pertencia nem qual era a intrusa. Ele encontrou a intrusa em 88% dos itens do CTM (IC95% por /bootstrap/ sobre os tópicos $[0{,}76;\,1{,}00]$) e em 80% dos do CTM + ambos ($[0{,}64;\,0{,}96]$); a diferença de 8 pontos percentuais não é distinguível de zero (teste exato de Fisher, $p=0{,}70$). Os dois modelos produzem tópicos interpretáveis para esse avaliador, e o teste não mostra que o grafo melhore ou piore a interpretabilidade. A resolução é baixa: com um avaliador que conhece a área e 25 itens por modelo, só diferenças grandes seriam detectadas.
+
+*Ameaças à validade.* (i) /Rótulos fracos/: as categorias do arXiv não definem os tópicos, e como vizinhos tendem a compartilhá-las, suavizar o embedding pode elevar NMI e acurácia sem melhorar os tópicos; complementamos com NPMI, diversidade e o teste de intrusão, e o NPMI não muda com nenhum grafo. (ii) /Variância/: os intervalos usam cinco sementes pareadas e não capturam a variação de amostragem dos documentos (não tratada); aplicamos Holm por família, sob o qual não resiste nenhum ganho de NMI nem nenhum efeito de H4. (iii) /Hiperparâmetros fixos/: variamos $K$ e $k$, mas arquitetura, taxa de aprendizado e número de saltos permanecem como limitação. (iv) /kNN sobre os mesmos embeddings/: o controle aleatório separa a informação dos vizinhos do aumento da entrada, e as citações, independentes do texto, não superam o kNN. (v) /Um conjunto de dados e um Transformer/: os resultados podem não valer para outras áreas, tipos de aresta ou embeddings treinados em artigos científicos.
+
+* Conclusão
+
+Comparamos LDA, NMF, ProdLDA e um modelo no estilo CTM em 168.663 artigos do ogbn-arxiv, com divisão temporal e vizinhança sem vazamento do futuro, para medir a contribuição do embedding de um Transformer e do grafo de vizinhos. Os modelos neurais superam o LDA e o NMF em NMI e acurácia. Entre eles, os vizinhos (kNN ou kNN + citação) elevam a acurácia em 0,7 a 0,8 ponto percentual sobre o CTM, e esse ganho resiste à correção de Holm; o ganho de NMI não resiste, e o NPMI não muda. Vizinhos aleatórios não ajudam, e as citações isoladas não superam o kNN. A variante em que o codificador recebe só o embedding e o grafo obteve os maiores NMI (0,421) e acurácia (0,705), com menor diversidade. Os ganhos se mantêm em sinal ao variar $K$ e $k$, mas os tópicos são tão instáveis entre sementes quanto entre modelos, e no teste de intrusão, com um avaliador, CTM e CTM + ambos não diferiram (88% e 80%).
+
+A principal limitação é que a concordância com as categorias, os rótulos fracos usados para avaliar, não mede a qualidade dos tópicos. O estudo também usa um único conjunto de dados e um único Transformer, três a cinco sementes e hiperparâmetros fixos, e a propagação do grafo é fixa. Como trabalhos futuros, propomos: (i) treinar uma rede de grafos de ponta a ponta; (ii) usar embeddings treinados em artigos científicos, como o SPECTER; (iii) repetir o teste de intrusão com vários avaliadores; e (iv) testar valores maiores de $K$, em que o ganho de NMI do grafo pareceu crescer.
+
+* Declaração de uso de IA generativa
+:PROPERTIES:
+:UNNUMBERED: t
+:END:
+
+Este trabalho utilizou o assistente Claude (Anthropic) como apoio para geração e revisão de código, discussão do desenho experimental e das métricas; e formatação de tabelas e figuras. O teste de intrusão de palavras foi respondido exclusivamente pelo autor, sem auxílio de ferramentas. Todo o código e o texto produzidos com auxílio da ferramenta foram revisados, executados e validados pelo autor, que assume a responsabilidade pelo conteúdo.
+
+#+print_bibliography:
